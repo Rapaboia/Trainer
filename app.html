@@ -156,12 +156,47 @@ button{
 .last-time{font-size:12.5px;color:var(--muted);margin-top:6px;}
 .set-row{
   display:grid;
-  grid-template-columns:28px 1fr 1fr;
-  gap:8px;
-  align-items:center;
-  margin-top:8px;
+  grid-template-columns:22px 1fr 1fr 54px;
+  gap:6px;
+  align-items:stretch;
+  margin-top:10px;
 }
-.set-row .setlabel{font-size:13px;color:var(--muted);text-align:center;}
+.set-row .setlabel{
+  font-size:12.5px;color:var(--muted);
+  writing-mode:vertical-rl;text-orientation:mixed;
+  display:flex;align-items:center;justify-content:center;
+}
+.stepper-v{
+  display:flex;flex-direction:column;
+  background:var(--panel2);
+  border:1px solid var(--border);
+  border-radius:12px;
+  overflow:hidden;
+}
+.stepper-v button{
+  width:100%;min-height:52px;
+  font-size:24px;font-weight:700;
+  background:transparent;color:var(--accent);
+  border-radius:0;
+}
+.stepper-v button:active{background:rgba(79,209,143,0.15);}
+.stepper-v .val{
+  text-align:center;padding:6px 4px;
+  font-size:19px;font-weight:700;
+  border-top:1px solid var(--border);
+  border-bottom:1px solid var(--border);
+}
+.stepper-v .val .unit{font-size:10.5px;color:var(--muted);font-weight:400;display:block;}
+.done-btn{
+  width:100%;min-height:52px;
+  background:var(--panel2);
+  border:1px solid var(--border);
+  border-radius:12px;
+  color:var(--muted);
+  font-size:22px;
+  display:flex;align-items:center;justify-content:center;
+}
+.done-btn.done{background:var(--accent);border-color:var(--accent);color:var(--accent-text);}
 
 nav.tabbar{
   position:fixed;left:0;right:0;bottom:0;
@@ -285,27 +320,28 @@ hr.sep{border:none;border-top:1px solid var(--border);margin:14px 0;}
    CONFIG DI DEFAULT
    ============================================================ */
 var DEFAULT_EXERCISES = {
-  panca_piana:        {name:"Panca piana bilanciere",       kind:"principal", lo:6,  hi:6,  inc:2.5,  unit:"kg", defSets:3},
-  chest_press:         {name:"Chest press",                  kind:"range",     lo:8,  hi:10, inc:2.5,  unit:"kg", defSets:3},
-  pulley_basso:        {name:"Pulley basso",                 kind:"range",     lo:8,  hi:10, inc:2.5,  unit:"kg", defSets:3},
-  bayesan_curl:        {name:"Bayesan curl",                 kind:"range",     lo:10, hi:12, inc:2,    unit:"kg", defSets:3},
-  curl_manubri_seduto: {name:"Curl manubri seduto",          kind:"range",     lo:10, hi:12, inc:2,    unit:"kg", defSets:3},
-  leg_raise:           {name:"Leg raise sedia romana",       kind:"legraise",  lo:12, hi:15, inc:1.25, unit:"kg zavorra", defSets:3},
-  squat:               {name:"Squat bilanciere",             kind:"principal", lo:6,  hi:6,  inc:5,    unit:"kg", defSets:3},
-  leg_press:           {name:"Leg press",                    kind:"range",     lo:8,  hi:10, inc:5,    unit:"kg", defSets:3},
-  calf_raise:          {name:"Calf raise",                   kind:"range",     lo:8,  hi:10, inc:2.5,  unit:"kg", defSets:3},
-  lento_avanti:        {name:"Lento avanti manubri",         kind:"range",     lo:8,  hi:10, inc:2,    unit:"kg", defSets:3},
-  alzate_laterali:     {name:"Alzate laterali manubri",      kind:"range",     lo:10, hi:12, inc:1,    unit:"kg", defSets:3},
-  dips_zavorrate:      {name:"Dips zavorrate",                kind:"principal", lo:6,  hi:6,  inc:2.5,  unit:"kg zavorra", defSets:3},
-  croci_cavi:          {name:"Croci ai cavi",                 kind:"range",     lo:10, hi:12, inc:2.5,  unit:"kg", defSets:3},
-  trazioni:            {name:"Trazioni",                      kind:"range",     lo:6,  hi:8,  inc:2.5,  unit:"kg zavorra", defSets:3},
-  push_down:           {name:"Push down al cavo alto",        kind:"range",     lo:8,  hi:10, inc:2.5,  unit:"kg", defSets:3},
-  french_press:        {name:"French press bilanciere EZ",    kind:"range",     lo:8,  hi:10, inc:2.5,  unit:"kg", defSets:3}
+  panca_piana:        {name:"Panca piana bilanciere",       kind:"principal", lo:6,  hi:6,  inc:2.5,  unit:"kg", defSets:3, rest:180},
+  chest_press:         {name:"Chest press",                  kind:"range",     lo:8,  hi:10, inc:2.5,  unit:"kg", defSets:3, rest:120},
+  pulley_basso:        {name:"Pulley basso",                 kind:"range",     lo:8,  hi:10, inc:2.5,  unit:"kg", defSets:3, rest:120},
+  bayesan_curl:        {name:"Bayesan curl",                 kind:"range",     lo:10, hi:12, inc:2,    unit:"kg", defSets:3, rest:90},
+  curl_manubri_seduto: {name:"Curl manubri seduto",          kind:"range",     lo:10, hi:12, inc:2,    unit:"kg", defSets:3, rest:90},
+  leg_raise:           {name:"Leg raise sedia romana",       kind:"legraise",  lo:12, hi:15, inc:1.25, unit:"kg zavorra", defSets:3, rest:60},
+  squat:               {name:"Squat bilanciere",             kind:"principal", lo:6,  hi:6,  inc:5,    unit:"kg", defSets:3, rest:180},
+  leg_press:           {name:"Leg press",                    kind:"range",     lo:8,  hi:10, inc:5,    unit:"kg", defSets:3, rest:120},
+  calf_raise:          {name:"Calf raise",                   kind:"range",     lo:8,  hi:10, inc:2.5,  unit:"kg", defSets:3, rest:120},
+  lento_avanti:        {name:"Lento avanti manubri",         kind:"range",     lo:8,  hi:10, inc:2,    unit:"kg", defSets:3, rest:120},
+  alzate_laterali:     {name:"Alzate laterali manubri",      kind:"range",     lo:10, hi:12, inc:1,    unit:"kg", defSets:3, rest:90},
+  dips_zavorrate:      {name:"Dips zavorrate",                kind:"principal", lo:6,  hi:6,  inc:2.5,  unit:"kg zavorra", defSets:3, rest:180},
+  croci_cavi:          {name:"Croci ai cavi",                 kind:"range",     lo:10, hi:12, inc:2.5,  unit:"kg", defSets:3, rest:90},
+  trazioni:            {name:"Trazioni",                      kind:"range",     lo:6,  hi:8,  inc:2.5,  unit:"kg zavorra", defSets:3, rest:120},
+  push_down:           {name:"Push down al cavo alto",        kind:"range",     lo:8,  hi:10, inc:2.5,  unit:"kg", defSets:3, rest:120},
+  french_press:        {name:"French press bilanciere EZ",    kind:"range",     lo:8,  hi:10, inc:2.5,  unit:"kg", defSets:3, rest:120},
+  face_pull:           {name:"Face pull al cavo (corda)",      kind:"range",     lo:12, hi:15, inc:2.5,  unit:"kg", defSets:3, rest:60}
 };
 
 var SCHEDE = {
   A: {name:"Petto e Dorso", exercises:["panca_piana","chest_press","pulley_basso","bayesan_curl","curl_manubri_seduto","leg_raise"]},
-  B: {name:"Gambe e Spalle", exercises:["squat","leg_press","calf_raise","lento_avanti","alzate_laterali"]},
+  B: {name:"Gambe e Spalle", exercises:["squat","leg_press","calf_raise","lento_avanti","alzate_laterali","face_pull"]},
   C: {name:"Spinta e Tricipiti", exercises:["dips_zavorrate","croci_cavi","trazioni","push_down","french_press","leg_raise"]}
 };
 
@@ -319,7 +355,8 @@ var LS = {
   workouts: "pp_workouts_v1",
   bodyweight: "pp_bodyweight_v1",
   rotation: "pp_rotation_index_v1",
-  nutrition: "pp_nutrition_v1"
+  nutrition: "pp_nutrition_v1",
+  restVersion: "pp_rest_version_v1"
 };
 
 var TARGETS = {
@@ -346,13 +383,30 @@ var state = {
   nutrition: loadJSON(LS.nutrition, [])
 };
 // merge in any new exercise keys added in future updates without wiping user edits
+var REST_DEFAULTS_VERSION = 2; // v2 = valori di recupero basati su Project Invictus (bracket per range di ripetizioni)
 (function mergeConfig(){
   var changed = false;
   Object.keys(DEFAULT_EXERCISES).forEach(function(k){
     if(!state.exercises[k]){ state.exercises[k] = JSON.parse(JSON.stringify(DEFAULT_EXERCISES[k])); changed = true; }
+    else if(state.exercises[k].rest === undefined){ state.exercises[k].rest = DEFAULT_EXERCISES[k].rest; changed = true; }
   });
+  var storedRestVersion = loadJSON(LS.restVersion, 0);
+  if(storedRestVersion < REST_DEFAULTS_VERSION){
+    Object.keys(DEFAULT_EXERCISES).forEach(function(k){
+      if(state.exercises[k]) state.exercises[k].rest = DEFAULT_EXERCISES[k].rest;
+    });
+    saveJSON(LS.restVersion, REST_DEFAULTS_VERSION);
+    changed = true;
+  }
   if(changed) saveJSON(LS.config, state.exercises);
 })();
+
+function formatRest(sec){
+  if(!sec) return "—";
+  if(sec % 60 === 0) return (sec/60)+" min";
+  var m = Math.floor(sec/60), s = sec % 60;
+  return m+"'"+s+'"';
+}
 
 function persistAll(){
   saveJSON(LS.config, state.exercises);
@@ -514,7 +568,7 @@ function startLog(schedaId, variant){
     var sug = suggestFor(exId, setsCount);
     var arr = [];
     for(var i=0;i<setsCount;i++){
-      arr.push({peso: sug.weight, reps: (sug.reps[i] !== undefined ? sug.reps[i] : cfg.lo)});
+      arr.push({peso: sug.weight, reps: (sug.reps[i] !== undefined ? sug.reps[i] : cfg.lo), done:false});
     }
     sets[exId] = arr;
   });
@@ -558,6 +612,12 @@ function stepSet(exId, idx, field, delta){
   render();
 }
 
+function toggleDone(exId, idx){
+  var s = logSession.sets[exId][idx];
+  s.done = !s.done;
+  render();
+}
+
 /* ============================================================
    RENDER: OGGI
    ============================================================ */
@@ -581,7 +641,7 @@ function renderOggi(){
       var sug = suggestFor(exId, logSession.sets[exId].length);
       html += '<div class="exercise">';
       html += '<div class="exname">'+cfg.name+'</div>';
-      html += '<div class="exmeta">'+(cfg.kind==="principal" ? "Esercizio principale · " : "")+cfg.lo+(cfg.lo!==cfg.hi?("-"+cfg.hi):"")+" rip · "+logSession.sets[exId].length+" serie</div>";
+      html += '<div class="exmeta">'+(cfg.kind==="principal" ? "Esercizio principale · " : "")+cfg.lo+(cfg.lo!==cfg.hi?("-"+cfg.hi):"")+" rip · "+logSession.sets[exId].length+" serie · recupero "+formatRest(cfg.rest)+'</div>';
       if(sug.lastText){
         html += '<div class="last-time">Ultima volta ('+fmtDateIt(sug.lastDate)+'): '+sug.lastText+'</div>';
       }
@@ -590,16 +650,17 @@ function renderOggi(){
       logSession.sets[exId].forEach(function(s, idx){
         html += '<div class="set-row">';
         html += '<div class="setlabel">S'+(idx+1)+'</div>';
-        html += '<div class="stepper">';
-        html += '<button data-act="step" data-ex="'+exId+'" data-idx="'+idx+'" data-field="peso" data-delta="-1">−</button>';
-        html += '<div class="val">'+fmtNum(s.peso)+'<span class="unit">'+cfg.unit+'</span></div>';
+        html += '<div class="stepper-v">';
         html += '<button data-act="step" data-ex="'+exId+'" data-idx="'+idx+'" data-field="peso" data-delta="1">+</button>';
+        html += '<div class="val">'+fmtNum(s.peso)+'<span class="unit">'+cfg.unit+'</span></div>';
+        html += '<button data-act="step" data-ex="'+exId+'" data-idx="'+idx+'" data-field="peso" data-delta="-1">−</button>';
         html += '</div>';
-        html += '<div class="stepper">';
-        html += '<button data-act="step" data-ex="'+exId+'" data-idx="'+idx+'" data-field="reps" data-delta="-1">−</button>';
-        html += '<div class="val">'+s.reps+'<span class="unit">rip</span></div>';
+        html += '<div class="stepper-v">';
         html += '<button data-act="step" data-ex="'+exId+'" data-idx="'+idx+'" data-field="reps" data-delta="1">+</button>';
+        html += '<div class="val">'+s.reps+'<span class="unit">rip</span></div>';
+        html += '<button data-act="step" data-ex="'+exId+'" data-idx="'+idx+'" data-field="reps" data-delta="-1">−</button>';
         html += '</div>';
+        html += '<button class="done-btn'+(s.done?' done':'')+'" data-act="toggle-done" data-ex="'+exId+'" data-idx="'+idx+'">'+(s.done?"✓":"○")+'</button>';
         html += '</div>';
       });
       html += '</div>';
@@ -951,6 +1012,7 @@ function renderConsulta(){
   html += '<p class="small"><strong>Accessori (range):</strong> prima si sale con le ripetizioni fino al limite alto; solo quando tutte le serie chiudono al limite alto si aggiunge carico e si riparte dal limite basso.</p>';
   html += '<p class="small"><strong>Leg raise:</strong> ginocchia a 90°, si progredisce con le ripetizioni poi con la zavorra ai piedi.</p>';
   html += '<p class="small"><strong>Deload:</strong> ogni 7-8 settimane, serie dimezzate, stessi carichi.</p>';
+  html += '<p class="small"><strong>Recupero tra le serie</strong> (fasce Project Invictus, per range di ripetizioni): forza 1-5 rip → 3-5\'; ipertrofia 8-12 rip → 1,5-2,5\'; isolamento 12+ rip → 30-90". Valori impostati per esercizio, modificabili in Impostazioni.</p>';
   html += '</div>';
 
   html += '<div class="card"><h2>Target alimentari</h2>';
@@ -985,11 +1047,14 @@ function renderImpostazioni(){
   var el = document.getElementById("view-impostazioni");
   var html = "";
 
-  html += '<div class="card"><h2>Incrementi di carico</h2><p class="small muted">Il "+" dei carichi usa questo incremento per ogni esercizio. Modificalo se non è quello giusto per la tua attrezzatura.</p>';
+  html += '<div class="card"><h2>Incrementi e recupero</h2><p class="small muted">Il "+" dei carichi usa questo incremento per ogni esercizio. Il recupero segue le fasce di Project Invictus per range di ripetizioni (forza 1-5 rip → 3-5\', ipertrofia 8-12 rip → 1,5-2,5\', isolamento 12+ rip → 30-90"): modificalo pure se preferisci altri tempi.</p>';
   Object.keys(state.exercises).forEach(function(exId){
     var cfg = state.exercises[exId];
-    html += '<div class="field"><label>'+cfg.name+' — incremento ('+cfg.unit+')</label>';
-    html += '<input type="number" step="0.25" min="0" value="'+cfg.inc+'" data-act="set-inc" data-ex="'+exId+'">';
+    html += '<div class="field"><label>'+cfg.name+'</label>';
+    html += '<div class="grid2">';
+    html += '<div><span class="small muted">Incremento ('+cfg.unit+')</span><input type="number" step="0.25" min="0" value="'+cfg.inc+'" data-act="set-inc" data-ex="'+exId+'"></div>';
+    html += '<div><span class="small muted">Recupero (secondi)</span><input type="number" step="15" min="0" value="'+cfg.rest+'" data-act="set-rest" data-ex="'+exId+'"></div>';
+    html += '</div>';
     html += '</div>';
   });
   html += '</div>';
@@ -1044,6 +1109,8 @@ document.addEventListener("click", function(e){
     saveLog();
   } else if(act === "step"){
     stepSet(t.getAttribute("data-ex"), parseInt(t.getAttribute("data-idx"),10), t.getAttribute("data-field"), parseFloat(t.getAttribute("data-delta")));
+  } else if(act === "toggle-done"){
+    toggleDone(t.getAttribute("data-ex"), parseInt(t.getAttribute("data-idx"),10));
   } else if(act === "toggle-session"){
     var id = t.getAttribute("data-id");
     openSessionId = openSessionId === id ? null : id;
@@ -1151,6 +1218,14 @@ document.addEventListener("change", function(e){
       state.exercises[exId].inc = v;
       persistAll();
       toast("Incremento aggiornato");
+    }
+  } else if(t.getAttribute && t.getAttribute("data-act") === "set-rest"){
+    var exIdR = t.getAttribute("data-ex");
+    var vR = parseInt(t.value, 10);
+    if(!isNaN(vR) && vR >= 0){
+      state.exercises[exIdR].rest = vR;
+      persistAll();
+      toast("Recupero aggiornato");
     }
   } else if(t.getAttribute && t.getAttribute("data-act") === "import-file"){
     var file = t.files && t.files[0];
