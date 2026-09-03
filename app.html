@@ -75,6 +75,8 @@ main{
 .row.between{justify-content:space-between;}
 .wrap{flex-wrap:wrap;}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.grid2 > div{min-width:0;}
+.grid2 input{width:100%;}
 .stat{
   background:var(--panel2);
   border-radius:12px;
@@ -361,40 +363,35 @@ var SCHEDE = {
 
 var ROTATION_SEQUENCE = ["A","B","C"];
 
-// Database alimenti per il diario alimentare: valori per 100g. Fonti: valori
-// verificati (yogurt greco intero, burro di arachidi: my-personaltrainer/fatsecret;
-// Prozis Protein Muesli: fatsecret) o tabelle nutrizionali standard per alimenti
-// generici. Sono un punto di partenza modificabile in Impostazioni: se un prodotto
-// è diverso dal tuo (es. yogurt 0% invece che intero, altro gusto di muesli),
-// correggi i valori lì — restano validi per tutte le voci future.
-var DEFAULT_FOODS = {
-  yogurt_greco:    {name:"Yogurt greco (intero)",  aliases:["yogurt greco","yogurt","yogurt greco intero"], kcal:115, prot:6.4, carb:2,  fat:9.1},
-  muesli_proteico: {name:"Muesli proteico (Prozis Protein Muesli)", aliases:["muesli proteico","musli proteico","protein muesli","protein musli","muesli","musli"], kcal:368, prot:20,  carb:58, fat:4.7},
-  burro_arachidi:  {name:"Burro di arachidi",       aliases:["burro di arachidi","burro d'arachidi","burro arachidi","peanut butter"], kcal:588, prot:25.1, carb:19.6, fat:50.4},
-  whey:            {name:"Proteine whey (polvere)", aliases:["whey","proteine whey","whey protein","proteine in polvere"], kcal:375, prot:75, carb:7,  fat:5},
-  mirtilli:        {name:"Mirtilli",                aliases:["mirtilli","mirtilli freschi"], kcal:57,  prot:0.7, carb:14, fat:0.3},
-  banana:          {name:"Banana",                  aliases:["banana"], kcal:89, prot:1.1, carb:23, fat:0.3},
-  mandorle:        {name:"Mandorle",                aliases:["mandorle"], kcal:579, prot:21, carb:22, fat:50},
-  miele:           {name:"Miele",                   aliases:["miele"], kcal:304, prot:0.3, carb:82, fat:0},
-  gallette_riso:   {name:"Gallette di riso",         aliases:["gallette","gallette di riso","gallette riso"], kcal:387, prot:8,  carb:81, fat:3},
-  olio_evo:        {name:"Olio extravergine d'oliva",aliases:["olio","olio evo","olio d'oliva","olio extravergine","olio di oliva"], kcal:884, prot:0, carb:0, fat:100},
-  petto_pollo:     {name:"Petto di pollo (cotto)",   aliases:["petto di pollo","pollo","petto pollo"], kcal:165, prot:31, carb:0, fat:3.6},
-  tonno_naturale:  {name:"Tonno al naturale",        aliases:["tonno","tonno al naturale","tonno naturale"], kcal:116, prot:26, carb:0, fat:1},
-  bresaola:        {name:"Bresaola",                 aliases:["bresaola"], kcal:151, prot:32, carb:0.4, fat:2},
-  riso:            {name:"Riso (crudo)",             aliases:["riso","riso crudo","riso in bianco"], kcal:360, prot:7, carb:80, fat:1},
-  pasta:           {name:"Pasta (cruda)",            aliases:["pasta","pasta cruda"], kcal:359, prot:12.5, carb:72, fat:1.5},
-  pane:            {name:"Pane",                     aliases:["pane"], kcal:275, prot:9, carb:56, fat:1.5},
-  verdure:         {name:"Verdure miste (generico)", aliases:["verdure","verdura","insalata"], kcal:25, prot:2, carb:4, fat:0.3}
+var MEAL_TYPES = ["Colazione","Metà mattina","Pranzo","Merenda","Cena","Spuntino"];
+// Riconosce il tipo pasto scritto come prima riga o come prefisso ("Colazione: ...", "Colazione\n...").
+// Le forme più specifiche vanno prima delle generiche (es. "spuntino pomeridiano" prima di "spuntino").
+var MEAL_TYPE_RE = /^\s*(prima colazione|colazione|met[aà]\s+mattina|spuntino mattutino|spuntino pomeridiano|spuntino pomeriggio|merenda|pranzo|cena|spuntino)\b[:\-,]?\s*/i;
+var MEAL_TYPE_LABELS = {
+  "prima colazione":"Colazione", "colazione":"Colazione",
+  "meta mattina":"Metà mattina", "metà mattina":"Metà mattina", "spuntino mattutino":"Metà mattina",
+  "spuntino pomeridiano":"Merenda", "spuntino pomeriggio":"Merenda", "merenda":"Merenda",
+  "pranzo":"Pranzo", "cena":"Cena", "spuntino":"Spuntino"
 };
-
-// Conversione unità comuni → grammi (approssimata, modificabile a mano nell'anteprima pasto).
-var UNIT_GRAMS = {
-  "g":1, "gr":1, "grammi":1, "grammo":1,
-  "cucchiaino":5, "cucchiaini":5,
-  "cucchiaio":15, "cucchiai":15,
-  "fetta":30, "fette":30,
-  "tazza":200, "tazze":200
-};
+function extractMealType(text){
+  var raw = String(text);
+  var m = raw.match(MEAL_TYPE_RE);
+  if(m){
+    var key = m[1].toLowerCase().replace(/\s+/g," ").trim();
+    var label = MEAL_TYPE_LABELS[key];
+    if(label) return {mealType: label, text: raw.slice(m[0].length)};
+  }
+  return {mealType: null, text: raw};
+}
+function guessMealTypeByHour(){
+  var h = new Date().getHours();
+  if(h < 10) return "Colazione";
+  if(h < 12) return "Metà mattina";
+  if(h < 15) return "Pranzo";
+  if(h < 18) return "Merenda";
+  if(h < 22) return "Cena";
+  return "Spuntino";
+}
 
 /* ============================================================
    STORAGE
@@ -405,7 +402,6 @@ var LS = {
   bodyweight: "pp_bodyweight_v1",
   rotation: "pp_rotation_index_v1",
   nutrition: "pp_nutrition_v1",
-  foods: "pp_foods_v1",
   restVersion: "pp_rest_version_v1"
 };
 
@@ -430,22 +426,13 @@ var state = {
   workouts: loadJSON(LS.workouts, []),
   bodyweight: loadJSON(LS.bodyweight, []),
   rotationIndex: loadJSON(LS.rotation, 0),
-  nutrition: loadJSON(LS.nutrition, []),
-  foods: loadJSON(LS.foods, null) || JSON.parse(JSON.stringify(DEFAULT_FOODS))
+  nutrition: loadJSON(LS.nutrition, [])
 };
-// Il vecchio "check alimentare" (sì/no per kcal/prot/carb/grassi) è superato dal diario
-// con calcolo reale: le voci nel vecchio formato (senza "items") non sono più leggibili,
-// vengono scartate al primo avvio della nuova versione.
-state.nutrition = state.nutrition.filter(function(n){ return Array.isArray(n.items); });
-
-// merge in any new food keys added in future updates without wiping user edits/aggiunte
-(function mergeFoods(){
-  var changed = false;
-  Object.keys(DEFAULT_FOODS).forEach(function(k){
-    if(!state.foods[k]){ state.foods[k] = JSON.parse(JSON.stringify(DEFAULT_FOODS[k])); changed = true; }
-  });
-  if(changed) saveJSON(LS.foods, state.foods);
-})();
+// Il vecchissimo "check alimentare" (sì/no per kcal/prot/carb/grassi, prima ancora del
+// diario) non aveva il campo "text": quelle voci non sono più leggibili, vengono scartate
+// al primo avvio. Sia le voci del diario con calcolo (items, versione precedente) sia
+// quelle di solo testo libero (versione attuale) hanno sempre "text" e restano valide.
+state.nutrition = state.nutrition.filter(function(n){ return typeof n.text === "string"; });
 
 // merge in any new exercise keys added in future updates without wiping user edits
 var REST_DEFAULTS_VERSION = 2; // v2 = valori di recupero basati su Project Invictus (bracket per range di ripetizioni)
@@ -479,7 +466,6 @@ function persistAll(){
   saveJSON(LS.bodyweight, state.bodyweight);
   saveJSON(LS.rotation, state.rotationIndex);
   saveJSON(LS.nutrition, state.nutrition);
-  saveJSON(LS.foods, state.foods);
 }
 
 function dayTypeFor(date){
@@ -488,82 +474,80 @@ function dayTypeFor(date){
 }
 
 /* ============================================================
-   DIARIO ALIMENTARE: parsing testo libero, matching alimenti, totali
+   DIARIO ALIMENTARE: registro in testo libero.
+   Niente riconoscimento di alimenti/calcolo kcal-macro in locale (matching per
+   parole chiave troppo fragile). Il calcolo lo fa l'IA: si copia il diario
+   ("Copia diario"), lo si incolla in chat, e la risposta dell'IA — che include
+   righe in formato id|kcal|proteine|carbo|grassi — si incolla a sua volta
+   nell'app ("Incolla i macro") per popolare i totali e vedere quanto resta
+   nella giornata (utile per bilanciare cena/spuntino se un pasto è saltato).
    ============================================================ */
-function normalizeText(s){
-  return String(s).toLowerCase()
-    .normalize("NFD").replace(/[̀-ͯ]/g,"")
-    .replace(/[^a-z0-9 ]/g," ")
-    .replace(/\s+/g," ").trim();
-}
-
 function round1(n){ return Math.round(n*10)/10; }
 
-function matchFood(text){
-  var nt = normalizeText(text);
-  if(!nt) return null;
-  var bestId = null, bestScore = 0;
-  Object.keys(state.foods).forEach(function(id){
-    var f = state.foods[id];
-    var aliases = (f.aliases && f.aliases.length) ? f.aliases : [f.name];
-    aliases.forEach(function(a){
-      var na = normalizeText(a);
-      if(!na) return;
-      if(nt === na && bestScore < 100){ bestId = id; bestScore = 100; }
-      else if((nt.indexOf(na) > -1 || na.indexOf(nt) > -1) && na.length > 2 && bestScore < 50){
-        bestId = id; bestScore = 50;
-      }
-    });
-  });
-  return bestId;
+function mealTypeOrder(mt){
+  var i = MEAL_TYPES.indexOf(mt);
+  return i === -1 ? MEAL_TYPES.length : i;
 }
 
-var UNIT_WORDS_RE = "g|gr|grammi|grammo|cucchiaini|cucchiaino|cucchiai|cucchiaio|fette|fetta|tazze|tazza";
-
-// Scompone una frase tipo "150gr yogurt greco, 30gr protein musli, cucchiaino burro d'arachidi"
-// in voci {raw, grams, foodId, foodName}. Non è un parser robusto per frasi qualsiasi:
-// gestisce il pattern "numero+unità nome" o "unità nome" (quantità implicita 1), separate da virgola.
-function parseMealText(text){
-  var parts = String(text).split(/,| e (?=\d)|\n/i).map(function(s){ return s.trim(); }).filter(Boolean);
-  if(!parts.length) return [];
-  return parts.map(function(part){
-    var qty = null, unit = "g", rest = part;
-    var m = part.match(new RegExp("^(\\d+[.,]?\\d*)\\s*("+UNIT_WORDS_RE+")?\\s+(.*)$", "i"));
-    if(m){
-      qty = parseFloat(m[1].replace(",", "."));
-      unit = (m[2] || "g").toLowerCase();
-      rest = m[3].trim();
-    } else {
-      var m2 = part.match(new RegExp("^("+UNIT_WORDS_RE+")\\s+(.*)$", "i"));
-      if(m2){ qty = 1; unit = m2[1].toLowerCase(); rest = m2[2].trim(); }
-    }
-    var grams = (qty !== null) ? round1(qty * (UNIT_GRAMS[unit] || 1)) : null;
-    var foodId = matchFood(rest);
-    return {
-      raw: part,
-      grams: grams,
-      foodId: foodId,
-      foodName: foodId ? state.foods[foodId].name : rest
-    };
+function nutritionDays(limitDays){
+  var byDate = {};
+  state.nutrition.forEach(function(n){
+    if(!byDate[n.date]) byDate[n.date] = [];
+    byDate[n.date].push(n);
+  });
+  var dates = Object.keys(byDate).sort().reverse();
+  if(limitDays) dates = dates.slice(0, limitDays);
+  return dates.map(function(d){
+    var entries = byDate[d].slice().sort(function(a,b){ return mealTypeOrder(a.mealType) - mealTypeOrder(b.mealType); });
+    return {date: d, entries: entries};
   });
 }
 
+function hasMacro(n){ return typeof n.kcal === "number"; }
+
+// Totali del giorno calcolati solo sui pasti che hanno già i macro (dopo un
+// "Incolla i macro"): utile per sapere quanto resta rispetto al target anche
+// se non tutti i pasti della giornata sono stati calcolati.
 function nutritionTotalsForDate(date){
   var entries = state.nutrition.filter(function(n){ return n.date === date; });
   var t = {kcal:0, prot:0, carb:0, fat:0};
-  entries.forEach(function(n){ t.kcal += n.kcal; t.prot += n.prot; t.carb += n.carb; t.fat += n.fat; });
-  return {entries: entries, totals: t};
+  var computed = 0;
+  entries.forEach(function(n){
+    if(hasMacro(n)){ t.kcal+=n.kcal; t.prot+=n.prot; t.carb+=n.carb; t.fat+=n.fat; computed++; }
+  });
+  return {entries: entries, totals: t, computed: computed};
 }
 
-function nutritionDailyTotals(limitDays){
-  var byDate = {};
-  state.nutrition.forEach(function(n){
-    if(!byDate[n.date]) byDate[n.date] = {date:n.date, kcal:0, prot:0, carb:0, fat:0};
-    byDate[n.date].kcal += n.kcal; byDate[n.date].prot += n.prot; byDate[n.date].carb += n.carb; byDate[n.date].fat += n.fat;
-  });
-  var arr = Object.keys(byDate).map(function(d){ return byDate[d]; });
-  arr.sort(function(a,b){ return a.date < b.date ? 1 : -1; });
-  return limitDays ? arr.slice(0, limitDays) : arr;
+// Testo pronto da incollare in una chat con l'IA per farsi calcolare kcal/macro
+// e ricevere consigli — include i target di riferimento, il peso medio e
+// l'istruzione sul formato di risposta, così il testo è autosufficiente anche
+// in una chat nuova senza altro contesto. Ogni pasto porta il suo id tra parentesi
+// graffe per permettere di reincollare i numeri nel pasto giusto; i pasti già
+// calcolati mostrano il valore così l'IA non deve ricalcolarli.
+function buildDiaryText(limitDays){
+  var days = nutritionDays(limitDays);
+  var lines = [];
+  lines.push("Diario alimentare — " + (limitDays === 1 ? "oggi" : "ultimi " + limitDays + " giorni"));
+  lines.push("Target: giorno di allenamento " + TARGETS.allenamento.kcal + " kcal / " + TARGETS.allenamento.prot + "g prot / " + TARGETS.allenamento.carb + "g carb / " + TARGETS.allenamento.grassi + "g grassi — giorno di riposo " + TARGETS.riposo.kcal + " kcal / " + TARGETS.riposo.prot + "g prot / " + TARGETS.riposo.carb + "g carb / " + TARGETS.riposo.grassi + "g grassi.");
+  var avg7 = sevenDayAvg();
+  if(avg7) lines.push("Peso corporeo (media 7gg): " + fmtNum(avg7) + " kg.");
+  lines.push("");
+  lines.push("Per ogni pasto qui sotto SENZA valore [già calcolato: ...], calcola kcal/proteine/carboidrati/grassi e includi nella risposta una riga per pasto in questo formato esatto (una riga per pasto, niente altro su quella riga): id|kcal|proteine_g|carbo_g|grassi_g — userò la tua risposta intera, incollata così com'è, per aggiornare l'app.");
+  lines.push("");
+  if(!days.length){
+    lines.push("(nessun pasto registrato)");
+  } else {
+    days.forEach(function(d){
+      var dt = dayTypeFor(d.date);
+      lines.push(fmtDateIt(d.date) + " — " + (dt === "allenamento" ? "giorno di allenamento" : "giorno di riposo"));
+      d.entries.forEach(function(n){
+        var macroTag = hasMacro(n) ? "  [già calcolato: "+fmtNum(n.kcal)+" kcal / "+fmtNum(n.prot)+"g prot / "+fmtNum(n.carb)+"g carb / "+fmtNum(n.fat)+"g grassi]" : "";
+        lines.push("- " + (n.mealType || "Pasto") + ": " + n.text + "  {id: "+n.id+"}" + macroTag);
+      });
+      lines.push("");
+    });
+  }
+  return lines.join("\n").trim();
 }
 
 /* ============================================================
@@ -998,11 +982,9 @@ function toCSV(){
 
   rows.push([]);
   rows.push(["=== ALIMENTAZIONE ==="]);
-  rows.push(["data","alimento","grammi","kcal","proteine_g","carbo_g","grassi_g"]);
+  rows.push(["data","pasto","testo","kcal","proteine_g","carbo_g","grassi_g"]);
   state.nutrition.slice().sort(function(a,b){ return a.date < b.date ? -1 : 1; }).forEach(function(n){
-    n.items.forEach(function(it){
-      rows.push([n.date, it.name, fmtNum(it.grams), fmtNum(it.kcal), fmtNum(it.prot), fmtNum(it.carb), fmtNum(it.fat)]);
-    });
+    rows.push([n.date, n.mealType||"Pasto", n.text, hasMacro(n)?fmtNum(n.kcal):"", hasMacro(n)?fmtNum(n.prot):"", hasMacro(n)?fmtNum(n.carb):"", hasMacro(n)?fmtNum(n.fat):""]);
   });
 
   return rowsToCSVText(rows);
@@ -1014,8 +996,7 @@ function toJSON(){
     exercises: state.exercises,
     workouts: state.workouts,
     bodyweight: state.bodyweight,
-    nutrition: state.nutrition,
-    foods: state.foods
+    nutrition: state.nutrition
   }, null, 2);
 }
 
@@ -1061,60 +1042,90 @@ function doExport(format){
    RENDER: PESO
    ============================================================ */
 var pesoInput = null;
-var mealDraft = null; // {date, rawText, items:[{foodId,name,grams,kcal100,prot100,carb100,fat100}]}
-var openNutriId = null;
+var nutriDraft = null; // {id, date, mealType, text} — presente solo mentre si modifica un pasto già salvato
+var macroPasteMessage = ""; // esito dell'ultimo "Applica i macro", mostrato finché non se ne fa un altro o si cambia tab
 
-function analyzeMealText(text, date){
-  var parsed = parseMealText(text);
-  mealDraft = {
-    date: date || todayISO(),
-    rawText: text,
-    items: parsed.map(function(p){
-      var f = p.foodId ? state.foods[p.foodId] : null;
-      return {
-        foodId: p.foodId,
-        name: f ? f.name : p.foodName,
-        grams: p.grams !== null ? p.grams : 100,
-        kcal100: f ? f.kcal : 0,
-        prot100: f ? f.prot : 0,
-        carb100: f ? f.carb : 0,
-        fat100: f ? f.fat : 0
-      };
-    })
-  };
-}
-
-function mealItemComputed(it){
-  var g = it.grams / 100;
-  return {kcal: round1(it.kcal100*g), prot: round1(it.prot100*g), carb: round1(it.carb100*g), fat: round1(it.fat100*g)};
-}
-
-function saveMeal(){
-  if(!mealDraft || !mealDraft.items.length) return;
-  var items = mealDraft.items.map(function(it){
-    var c = mealItemComputed(it);
-    return {name: it.name, grams: it.grams, kcal100: it.kcal100, prot100: it.prot100, carb100: it.carb100, fat100: it.fat100,
-            kcal: c.kcal, prot: c.prot, carb: c.carb, fat: c.fat};
-  });
-  var totals = items.reduce(function(acc,i){ acc.kcal+=i.kcal; acc.prot+=i.prot; acc.carb+=i.carb; acc.fat+=i.fat; return acc; }, {kcal:0,prot:0,carb:0,fat:0});
-  state.nutrition.push({
-    id: uid(), date: mealDraft.date, text: mealDraft.rawText, items: items,
-    kcal: round1(totals.kcal), prot: round1(totals.prot), carb: round1(totals.carb), fat: round1(totals.fat)
-  });
-  // Alimenti non riconosciuti in fase di analisi: se in anteprima sono stati compilati
-  // dei valori per 100g, li salvo nel database per essere riconosciuti la prossima volta.
-  mealDraft.items.forEach(function(it){
-    if(!it.foodId && it.name && (it.kcal100 || it.prot100 || it.carb100 || it.fat100)){
-      var key = normalizeText(it.name).replace(/ /g,"_").slice(0,40) || uid();
-      if(!state.foods[key]){
-        state.foods[key] = {name: it.name, aliases:[it.name], kcal:it.kcal100, prot:it.prot100, carb:it.carb100, fat:it.fat100};
-      }
-    }
-  });
+function saveNewMeal(text){
+  text = String(text || "").trim();
+  if(!text) return;
+  var ext = extractMealType(text);
+  var mealType = ext.mealType || guessMealTypeByHour();
+  var body = ext.text.trim() || text;
+  state.nutrition.push({id: uid(), date: todayISO(), mealType: mealType, text: body});
   persistAll();
-  mealDraft = null;
   toast("Pasto salvato ✓");
   render();
+}
+
+function openNutriEdit(id){
+  var n = state.nutrition.find(function(x){ return x.id === id; });
+  if(!n) return;
+  nutriDraft = {id: n.id, date: n.date, mealType: n.mealType || "Pasto", text: n.text};
+  render();
+}
+
+function saveNutriEdit(){
+  if(!nutriDraft) return;
+  var text = String(nutriDraft.text || "").trim();
+  if(!text) return;
+  var n = state.nutrition.find(function(x){ return x.id === nutriDraft.id; });
+  if(n){
+    n.date = nutriDraft.date;
+    n.mealType = nutriDraft.mealType;
+    n.text = text;
+    persistAll();
+    toast("Pasto aggiornato ✓");
+  }
+  nutriDraft = null;
+  render();
+}
+
+function renderNutriRow(n){
+  if(nutriDraft && nutriDraft.id === n.id){
+    var h = '<div class="exercise">';
+    h += '<div class="field"><label>Data</label><input type="date" value="'+nutriDraft.date+'" max="'+todayISO()+'" data-act="nutri-edit-date"></div>';
+    h += '<div class="field"><label>Pasto</label><div class="btn-row" style="flex-wrap:wrap;">';
+    MEAL_TYPES.forEach(function(mt){
+      h += '<button class="btn small'+(nutriDraft.mealType===mt?' primary':'')+'" style="width:auto;min-height:38px;padding:6px 12px;" data-act="nutri-edit-type" data-type="'+mt+'">'+mt+'</button>';
+    });
+    h += '</div></div>';
+    h += '<div class="field"><label>Testo</label><textarea class="export-box" id="nutriEditText" data-act="nutri-edit-text" style="min-height:70px;font-family:inherit;font-size:15px;">'+nutriDraft.text.replace(/</g,"&lt;")+'</textarea></div>';
+    h += '<div class="btn-row" style="margin-top:10px;">';
+    h += '<button class="btn ghost" data-act="nutri-edit-cancel">Annulla</button>';
+    h += '<button class="btn small danger" data-act="delete-nutri" data-id="'+n.id+'">Elimina</button>';
+    h += '<button class="btn primary" data-act="nutri-edit-save">Salva</button>';
+    h += '</div>';
+    h += '</div>';
+    return h;
+  }
+  var preview = n.text.length > 70 ? n.text.slice(0,70)+"…" : n.text;
+  var macroBadge = hasMacro(n) ? ' · '+fmtNum(n.kcal)+' kcal' : ' · <span class="muted">macro non calcolato</span>';
+  return '<div class="session-item"><div class="row between head" data-act="nutri-edit-open" data-id="'+n.id+'"><div><strong>'+(n.mealType||"Pasto")+'</strong>'+macroBadge+' · '+preview+'</div></div></div>';
+}
+
+// Applica i macro incollati dall'IA: cerca righe "id|kcal|proteine|carbo|grassi"
+// (5 campi separati da |, il primo che combacia con l'id di un pasto salvato,
+// gli altri quattro numerici) e ignora silenziosamente tutto il resto — così si
+// può incollare l'intera risposta dell'IA, non serve isolare a mano le righe.
+function applyMacroPaste(text){
+  var lines = String(text || "").split(/\r?\n/);
+  var applied = 0;
+  lines.forEach(function(line){
+    var parts = line.split("|");
+    if(parts.length !== 5) return;
+    var id = parts[0].trim();
+    var n = state.nutrition.find(function(x){ return x.id === id; });
+    if(!n) return;
+    var kcal = parseFloat(String(parts[1]).replace(",", "."));
+    var prot = parseFloat(String(parts[2]).replace(",", "."));
+    var carb = parseFloat(String(parts[3]).replace(",", "."));
+    var fat = parseFloat(String(parts[4]).replace(",", "."));
+    if([kcal,prot,carb,fat].some(function(v){ return isNaN(v) || v < 0; })) return;
+    n.kcal = round1(kcal); n.prot = round1(prot); n.carb = round1(carb); n.fat = round1(fat);
+    applied++;
+  });
+  if(applied) persistAll();
+  return {applied: applied};
 }
 
 function renderPeso(){
@@ -1130,80 +1141,64 @@ function renderPeso(){
 
   html += '<div class="card">';
   html += '<h2 style="margin:0;">Diario alimentare</h2>';
-  if(mealDraft){
-    html += '<div class="muted small" style="margin-top:6px;">Controlla alimenti e grammi riconosciuti, correggi se serve, poi salva.</div>';
-    html += '<div class="field" style="margin-top:10px;"><label>Data</label><input type="date" value="'+mealDraft.date+'" max="'+todayISO()+'" data-act="meal-date"></div>';
-    var dTotals = {kcal:0,prot:0,carb:0,fat:0};
-    mealDraft.items.forEach(function(it, idx){
-      var c = mealItemComputed(it);
-      dTotals.kcal+=c.kcal; dTotals.prot+=c.prot; dTotals.carb+=c.carb; dTotals.fat+=c.fat;
-      html += '<div class="exercise">';
-      html += '<div class="row between"><input type="text" class="val-input" style="text-align:left;font-size:15px;" value="'+it.name.replace(/"/g,"&quot;")+'" data-act="meal-name" data-idx="'+idx+'">';
-      html += '<button class="btn small danger" style="width:auto;min-height:34px;padding:4px 10px;" data-act="meal-remove-item" data-idx="'+idx+'">×</button></div>';
-      if(!it.foodId){
-        html += '<div class="muted small" style="margin-top:2px;">Alimento non riconosciuto: controlla/completa i valori per 100g qui sotto (restano salvati per le prossime volte).</div>';
-      }
-      html += '<div class="grid2" style="margin-top:6px;">';
-      html += '<div><span class="small muted">Grammi</span><input type="number" step="1" min="0" value="'+it.grams+'" data-act="meal-grams" data-idx="'+idx+'"></div>';
-      html += '<div><span class="small muted">Kcal/100g</span><input type="number" step="1" min="0" value="'+it.kcal100+'" data-act="meal-macro" data-field="kcal100" data-idx="'+idx+'"></div>';
-      html += '<div><span class="small muted">Proteine/100g</span><input type="number" step="0.1" min="0" value="'+it.prot100+'" data-act="meal-macro" data-field="prot100" data-idx="'+idx+'"></div>';
-      html += '<div><span class="small muted">Carbo/100g</span><input type="number" step="0.1" min="0" value="'+it.carb100+'" data-act="meal-macro" data-field="carb100" data-idx="'+idx+'"></div>';
-      html += '<div><span class="small muted">Grassi/100g</span><input type="number" step="0.1" min="0" value="'+it.fat100+'" data-act="meal-macro" data-field="fat100" data-idx="'+idx+'"></div>';
-      html += '</div>';
-      html += '<div class="suggestion hold" style="margin-top:8px;">'+fmtNum(c.kcal)+' kcal · '+fmtNum(c.prot)+'g prot · '+fmtNum(c.carb)+'g carb · '+fmtNum(c.fat)+'g grassi</div>';
-      html += '</div>';
+  html += '<div class="muted small" style="margin-top:6px;">Scrivi cosa hai mangiato, es: "Pranzo: 150g petto di pollo, 60g riso, verdure, un cucchiaio d\'olio". Se scrivi il pasto come prima parola (Colazione/Pranzo/Cena/...) lo riconosco, altrimenti lo indovino dall\'ora — sempre correggibile dopo.</div>';
+  html += '<div class="field" style="margin-top:10px;"><textarea class="export-box" id="mealTextInput" style="min-height:80px;font-family:inherit;font-size:15px;" placeholder="Scrivi qui il pasto..."></textarea></div>';
+  html += '<button class="btn primary" data-act="meal-save-new">Salva pasto</button>';
+  html += '</div>';
+
+  var dt = dayTypeFor(todayISO());
+  var t = TARGETS[dt];
+  var todayDay = nutritionDays(1)[0];
+  var todayTot = nutritionTotalsForDate(todayISO());
+  html += '<div class="card">';
+  html += '<h3 style="margin:0;">Oggi ('+(dt==="allenamento"?"giorno di allenamento":"giorno di riposo")+')</h3>';
+  html += '<div class="muted small" style="margin-top:4px;">Target di riferimento: '+t.kcal+' kcal · '+t.prot+'g prot · '+t.carb+'g carb · '+t.grassi+'g grassi</div>';
+  if(todayTot.computed > 0){
+    html += '<div class="grid2" style="margin-top:10px;">';
+    [["kcal","Kcal",t.kcal,""],["prot","Proteine",t.prot,"g"],["carb","Carboidrati",t.carb,"g"],["fat","Grassi",t.grassi,"g"]].forEach(function(p){
+      var consumed = todayTot.totals[p[0]];
+      var remaining = round1(p[2] - consumed);
+      html += '<div class="stat"><div class="num">'+fmtNum(remaining)+p[3]+'</div><div class="label">'+p[1]+' rimanenti (mangiati '+fmtNum(consumed)+p[3]+')</div></div>';
     });
-    html += '<button class="btn ghost small" style="margin-top:12px;" data-act="meal-add-item">+ Aggiungi alimento</button>';
-    html += '<div class="card" style="margin-top:10px;background:var(--panel2);"><strong>Totale pasto:</strong> '+fmtNum(dTotals.kcal)+' kcal · '+fmtNum(dTotals.prot)+'g prot · '+fmtNum(dTotals.carb)+'g carb · '+fmtNum(dTotals.fat)+'g grassi</div>';
-    html += '<div class="btn-row" style="margin-top:12px;">';
-    html += '<button class="btn ghost" data-act="meal-cancel">Annulla</button>';
-    html += '<button class="btn primary" data-act="meal-save">Salva pasto</button>';
+    html += '</div>';
+    if(todayTot.computed < todayTot.entries.length){
+      html += '<div class="muted small" style="margin-top:8px;">'+(todayTot.entries.length - todayTot.computed)+' pasto/i di oggi senza macro ancora — i rimanenti qui sopra non li includono finché non li calcoli con "Analisi con l\'IA" qui sotto.</div>';
+    }
+  } else if(todayDay && todayDay.entries.length){
+    html += '<div class="muted small" style="margin-top:10px;">Nessun pasto di oggi ha ancora i macro calcolati — usa "Analisi con l\'IA" qui sotto per saperlo, così vedi anche quanto ti resta per il prossimo pasto.</div>';
+  }
+  if(todayDay && todayDay.entries.length){
+    html += '<div style="margin-top:10px;">';
+    todayDay.entries.forEach(function(n){ html += renderNutriRow(n); });
     html += '</div>';
   } else {
-    html += '<div class="muted small" style="margin-top:6px;">Scrivi cosa hai mangiato, es: "150gr yogurt greco, 30gr muesli proteico, cucchiaino burro d\'arachidi"</div>';
-    html += '<div class="field" style="margin-top:10px;"><textarea class="export-box" id="mealTextInput" style="min-height:80px;font-family:inherit;font-size:15px;" placeholder="Scrivi qui il pasto..."></textarea></div>';
-    html += '<button class="btn primary" data-act="meal-analyze">Analizza</button>';
+    html += '<div class="muted small" style="margin-top:10px;">Ancora nessun pasto registrato oggi.</div>';
   }
   html += '</div>';
 
-  if(!mealDraft){
-    var dt = dayTypeFor(todayISO());
-    var t = TARGETS[dt];
-    var todayNutri = nutritionTotalsForDate(todayISO());
-    html += '<div class="card">';
-    html += '<div class="row between"><h3 style="margin:0;">Oggi ('+(dt==="allenamento"?"giorno di allenamento":"giorno di riposo")+')</h3></div>';
-    html += '<div class="muted small" style="margin-top:4px;">Target: '+t.kcal+' kcal · '+t.prot+'g prot · '+t.carb+'g carb · '+t.grassi+'g grassi</div>';
-    html += '<div class="grid2" style="margin-top:10px;">';
-    [["kcal","Kcal",t.kcal,""],["prot","Proteine",t.prot,"g"],["carb","Carboidrati",t.carb,"g"],["fat","Grassi",t.grassi,"g"]].forEach(function(p){
-      html += '<div class="stat"><div class="num">'+fmtNum(todayNutri.totals[p[0]])+p[3]+'</div><div class="label">'+p[1]+' (target '+p[2]+p[3]+')</div></div>';
+  var prevDays = nutritionDays(8).filter(function(d){ return d.date !== todayISO(); });
+  if(prevDays.length){
+    html += '<div class="card"><h3 style="margin:0;">Giorni precedenti</h3>';
+    prevDays.forEach(function(d){
+      var dtp = dayTypeFor(d.date);
+      html += '<div class="muted small" style="margin-top:12px;">'+fmtDateIt(d.date)+' · '+(dtp==="allenamento"?"allenamento":"riposo")+'</div>';
+      d.entries.forEach(function(n){ html += renderNutriRow(n); });
     });
     html += '</div>';
-    if(todayNutri.entries.length){
-      html += '<div style="margin-top:10px;">';
-      todayNutri.entries.forEach(function(n){
-        html += '<div class="session-item">';
-        html += '<div class="row between head" data-act="toggle-nutri" data-id="'+n.id+'">';
-        html += '<div>'+fmtNum(n.kcal)+' kcal · '+(n.text.length>40?n.text.slice(0,40)+"…":n.text)+'</div>';
-        html += '<button class="btn small danger" data-act="delete-nutri" data-id="'+n.id+'" style="width:auto;min-height:34px;padding:4px 10px;">×</button>';
-        html += '</div>';
-        html += '<div class="session-detail'+(openNutriId===n.id?' open':'')+'">';
-        html += '<table><thead><tr><th>Alimento</th><th>g</th><th>Kcal</th></tr></thead><tbody>';
-        n.items.forEach(function(it){ html += '<tr><td>'+it.name+'</td><td>'+fmtNum(it.grams)+'</td><td>'+fmtNum(it.kcal)+'</td></tr>'; });
-        html += '</tbody></table></div></div>';
-      });
-      html += '</div>';
-    }
-    html += '</div>';
-
-    var days = nutritionDailyTotals(10);
-    if(days.length){
-      html += '<div class="card"><h3>Ultimi giorni</h3><table><thead><tr><th>Data</th><th>Kcal</th><th>Prot</th><th>Carb</th><th>Grassi</th></tr></thead><tbody>';
-      days.forEach(function(d){
-        html += '<tr><td>'+fmtDateIt(d.date)+'</td><td>'+fmtNum(d.kcal)+'</td><td>'+fmtNum(d.prot)+'</td><td>'+fmtNum(d.carb)+'</td><td>'+fmtNum(d.fat)+'</td></tr>';
-      });
-      html += '</tbody></table></div>';
-    }
   }
+
+  html += '<div class="card">';
+  html += '<h3 style="margin:0;">Analisi con l\'IA</h3>';
+  html += '<div class="muted small" style="margin-top:6px;">1) Copia il diario e incollalo in una chat con Claude, per farti calcolare kcal/macro e avere consigli (es. cosa mangiare a cena se hai saltato un pasto). 2) Incolla qui la sua risposta intera: i numeri vengono applicati da soli ai pasti giusti, il resto del testo viene ignorato.</div>';
+  html += '<div class="btn-row" style="margin-top:10px;">';
+  html += '<button class="btn" data-act="copy-diary" data-days="1">Copia oggi</button>';
+  html += '<button class="btn" data-act="copy-diary" data-days="7">Copia ultimi 7gg</button>';
+  html += '</div>';
+  html += '<div id="diaryTextBox"></div>';
+  html += '<div class="field" style="margin-top:14px;"><label>Incolla qui la risposta dell\'IA</label><textarea class="export-box" id="macroPasteInput" style="min-height:90px;font-family:inherit;font-size:14px;" placeholder="Incolla qui..."></textarea></div>';
+  html += '<button class="btn primary" data-act="apply-macro-paste">Applica i macro</button>';
+  if(macroPasteMessage) html += '<div class="muted small" style="margin-top:8px;">'+macroPasteMessage+'</div>';
+  html += '</div>';
 
   html += '<hr class="sep">';
 
@@ -1351,21 +1346,8 @@ function renderImpostazioni(){
   html += '</div>';
   html += '</div>';
 
-  html += '<div class="card"><h2>Database alimenti</h2><p class="small muted">Valori per 100g usati dal diario alimentare per riconoscere gli alimenti e calcolare kcal/macro. Correggi qui se un valore non corrisponde al prodotto che usi davvero (es. yogurt 0% invece che intero).</p>';
-  Object.keys(state.foods).sort(function(a,b){ return state.foods[a].name.localeCompare(state.foods[b].name); }).forEach(function(fid){
-    var f = state.foods[fid];
-    html += '<div class="field"><label>'+f.name+'</label>';
-    html += '<div class="grid2">';
-    html += '<div><span class="small muted">Kcal/100g</span><input type="number" step="1" min="0" value="'+f.kcal+'" data-act="food-macro" data-field="kcal" data-food="'+fid+'"></div>';
-    html += '<div><span class="small muted">Proteine/100g</span><input type="number" step="0.1" min="0" value="'+f.prot+'" data-act="food-macro" data-field="prot" data-food="'+fid+'"></div>';
-    html += '<div><span class="small muted">Carbo/100g</span><input type="number" step="0.1" min="0" value="'+f.carb+'" data-act="food-macro" data-field="carb" data-food="'+fid+'"></div>';
-    html += '<div><span class="small muted">Grassi/100g</span><input type="number" step="0.1" min="0" value="'+f.fat+'" data-act="food-macro" data-field="fat" data-food="'+fid+'"></div>';
-    html += '</div></div>';
-  });
-  html += '</div>';
-
   html += '<div class="card"><h2>Dati</h2>';
-  html += '<p class="small">'+state.workouts.length+' sedute · '+state.bodyweight.length+' pesate · '+state.nutrition.length+' pasti registrati · '+Object.keys(state.foods).length+' alimenti nel database.</p>';
+  html += '<p class="small">'+state.workouts.length+' sedute · '+state.bodyweight.length+' pesate · '+state.nutrition.length+' pasti registrati.</p>';
   html += '<div class="field"><label>Importa backup JSON</label><input type="file" accept="application/json,.json" data-act="import-file"></div>';
   html += '<button class="btn danger" data-act="wipe-data">Cancella tutti i dati</button>';
   html += '</div>';
@@ -1453,36 +1435,58 @@ document.addEventListener("click", function(e){
       persistAll();
       render();
     }
-  } else if(act === "meal-analyze"){
-    var ta = document.getElementById("mealTextInput");
-    var txt = ta ? ta.value.trim() : "";
-    if(txt){ analyzeMealText(txt, todayISO()); render(); }
-  } else if(act === "meal-remove-item"){
-    if(mealDraft){
-      mealDraft.items.splice(parseInt(t.getAttribute("data-idx"),10), 1);
-      render();
-    }
-  } else if(act === "meal-add-item"){
-    if(mealDraft){
-      mealDraft.items.push({foodId:null, name:"Nuovo alimento", grams:100, kcal100:0, prot100:0, carb100:0, fat100:0});
-      render();
-    }
-  } else if(act === "meal-cancel"){
-    mealDraft = null;
+  } else if(act === "meal-save-new"){
+    var mta = document.getElementById("mealTextInput");
+    saveNewMeal(mta ? mta.value : "");
+  } else if(act === "nutri-edit-open"){
+    openNutriEdit(t.getAttribute("data-id"));
+  } else if(act === "nutri-edit-type"){
+    if(nutriDraft){ nutriDraft.mealType = t.getAttribute("data-type"); render(); }
+  } else if(act === "nutri-edit-cancel"){
+    nutriDraft = null;
     render();
-  } else if(act === "meal-save"){
-    saveMeal();
-  } else if(act === "toggle-nutri"){
-    var nid = t.getAttribute("data-id");
-    openNutriId = openNutriId === nid ? null : nid;
-    render();
+  } else if(act === "nutri-edit-save"){
+    saveNutriEdit();
   } else if(act === "delete-nutri"){
     e.stopPropagation();
     if(confirm("Eliminare questo pasto?")){
-      state.nutrition = state.nutrition.filter(function(n){ return n.id !== t.getAttribute("data-id"); });
+      var delId = t.getAttribute("data-id");
+      state.nutrition = state.nutrition.filter(function(n){ return n.id !== delId; });
+      if(nutriDraft && nutriDraft.id === delId) nutriDraft = null;
       persistAll();
       render();
     }
+  } else if(act === "copy-diary"){
+    var days2 = parseInt(t.getAttribute("data-days"),10) || 1;
+    var diaryText = buildDiaryText(days2);
+    var box2 = document.getElementById("diaryTextBox");
+    if(box2){
+      box2.innerHTML = '<div class="field" style="margin-top:12px;"><label>Testo pronto da incollare in chat</label><textarea class="export-box" readonly id="diaryTextarea">'+diaryText.replace(/</g,"&lt;")+'</textarea><button class="btn small" style="margin-top:8px;" data-act="copy-diary-text">Copia negli appunti</button></div>';
+    }
+    var ta2 = document.getElementById("diaryTextarea");
+    if(ta2){
+      ta2.select();
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(diaryText).then(function(){ toast("Copiato ✓"); }).catch(function(){});
+      }
+    }
+  } else if(act === "copy-diary-text"){
+    var ta3 = document.getElementById("diaryTextarea");
+    if(ta3){
+      ta3.select();
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(ta3.value).then(function(){ toast("Copiato ✓"); }).catch(function(){ document.execCommand("copy"); toast("Copiato ✓"); });
+      } else {
+        document.execCommand("copy");
+        toast("Copiato ✓");
+      }
+    }
+  } else if(act === "apply-macro-paste"){
+    var mpi = document.getElementById("macroPasteInput");
+    var result = applyMacroPaste(mpi ? mpi.value : "");
+    macroPasteMessage = result.applied ? (result.applied + " pasto/i aggiornati ✓") : "Nessuna riga valida trovata (formato atteso: id|kcal|proteine|carbo|grassi).";
+    if(result.applied) toast("Macro applicati ✓");
+    render();
   } else if(act === "force-rotation"){
     var target = t.getAttribute("data-scheda");
     var idx = ROTATION_SEQUENCE.indexOf(target);
@@ -1498,14 +1502,12 @@ document.addEventListener("click", function(e){
       localStorage.removeItem(LS.bodyweight);
       localStorage.removeItem(LS.rotation);
       localStorage.removeItem(LS.nutrition);
-      localStorage.removeItem(LS.foods);
       state.exercises = JSON.parse(JSON.stringify(DEFAULT_EXERCISES));
       state.workouts = [];
       state.bodyweight = [];
       state.rotationIndex = 0;
       state.nutrition = [];
-      state.foods = JSON.parse(JSON.stringify(DEFAULT_FOODS));
-      mealDraft = null;
+      nutriDraft = null;
       toast("Dati cancellati");
       render();
     }
@@ -1514,52 +1516,14 @@ document.addEventListener("click", function(e){
 
 document.addEventListener("change", function(e){
   var t = e.target;
-  if(t.getAttribute && t.getAttribute("data-act") === "meal-date"){
-    if(mealDraft){ mealDraft.date = t.value || todayISO(); render(); }
-  } else if(t.getAttribute && t.getAttribute("data-act") === "meal-name"){
-    if(mealDraft){
-      var idx = parseInt(t.getAttribute("data-idx"),10);
-      var it = mealDraft.items[idx];
-      // Riassocia automaticamente a un alimento del database solo se questa voce non ha
-      // ancora valori nutrizionali (es. una voce nuova, vuota): altrimenti rinominare
-      // sovrascriverebbe in silenzio valori già confermati o corretti a mano.
-      var isBlank = !it.kcal100 && !it.prot100 && !it.carb100 && !it.fat100;
-      it.name = t.value;
-      if(isBlank){
-        var fid = matchFood(t.value);
-        if(fid){
-          var f = state.foods[fid];
-          it.foodId = fid; it.name = f.name; it.kcal100 = f.kcal; it.prot100 = f.prot; it.carb100 = f.carb; it.fat100 = f.fat;
-        }
-      } else {
-        it.foodId = null; // ora è un nome personalizzato, scollegato dal database
-      }
-      render();
-    }
-  } else if(t.getAttribute && t.getAttribute("data-act") === "meal-grams"){
-    if(mealDraft){
-      var v = parseFloat(t.value);
-      mealDraft.items[parseInt(t.getAttribute("data-idx"),10)].grams = (isNaN(v)||v<0) ? 0 : v;
-      render();
-    }
-  } else if(t.getAttribute && t.getAttribute("data-act") === "meal-macro"){
-    if(mealDraft){
-      var v2 = parseFloat(t.value);
-      mealDraft.items[parseInt(t.getAttribute("data-idx"),10)][t.getAttribute("data-field")] = (isNaN(v2)||v2<0) ? 0 : v2;
-      render();
-    }
+  if(t.getAttribute && t.getAttribute("data-act") === "nutri-edit-date"){
+    if(nutriDraft){ nutriDraft.date = t.value || todayISO(); render(); }
+  } else if(t.getAttribute && t.getAttribute("data-act") === "nutri-edit-text"){
+    if(nutriDraft){ nutriDraft.text = t.value; }
   } else if(t.getAttribute && t.getAttribute("data-act") === "set-date"){
     if(logSession){ logSession.date = t.value || todayISO(); render(); }
   } else if(t.getAttribute && t.getAttribute("data-act") === "set-val"){
     if(logSession) setVal(t.getAttribute("data-ex"), parseInt(t.getAttribute("data-idx"),10), t.getAttribute("data-field"), t.value);
-  } else if(t.getAttribute && t.getAttribute("data-act") === "food-macro"){
-    var fid = t.getAttribute("data-food");
-    var field = t.getAttribute("data-field");
-    var vf = parseFloat(t.value);
-    if(!isNaN(vf) && vf >= 0 && state.foods[fid]){
-      state.foods[fid][field] = vf;
-      saveJSON(LS.foods, state.foods);
-    }
   } else if(t.getAttribute && t.getAttribute("data-act") === "set-inc"){
     var exId = t.getAttribute("data-ex");
     var v = parseFloat(t.value);
@@ -1588,7 +1552,6 @@ document.addEventListener("change", function(e){
         if(data.workouts) state.workouts = data.workouts;
         if(data.bodyweight) state.bodyweight = data.bodyweight;
         if(data.nutrition) state.nutrition = data.nutrition;
-        if(data.foods) state.foods = data.foods;
         persistAll();
         toast("Backup importato ✓");
         render();
