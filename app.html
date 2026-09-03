@@ -187,6 +187,20 @@ button{
   border-bottom:1px solid var(--border);
 }
 .stepper-v .val .unit{font-size:10.5px;color:var(--muted);font-weight:400;display:block;}
+.val-input{
+  width:100%;display:block;
+  background:transparent;border:none;outline:none;
+  color:var(--text);font-family:inherit;
+  font-size:19px;font-weight:700;text-align:center;
+  padding:0;-moz-appearance:textfield;
+}
+.val-input::-webkit-inner-spin-button,.val-input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
+.field input[type=date]{
+  width:auto;min-height:44px;
+  background:var(--panel2);color:var(--text);
+  border:1px solid var(--border);border-radius:10px;
+  padding:8px 12px;font-size:14px;
+}
 .done-btn{
   width:100%;min-height:52px;
   background:var(--panel2);
@@ -465,9 +479,21 @@ function advanceRotation(){
 /* ============================================================
    LOGICA STORICO / SUGGERIMENTI
    ============================================================ */
-function lastPerformance(exId){
-  for(var i = state.workouts.length - 1; i >= 0; i--){
-    var w = state.workouts[i];
+// Ordina le sedute per data (crescente); a parità di data, per ordine di inserimento (id).
+// Serve perché con la modifica/aggiunta di sedute retroattive l'ordine nell'array
+// non è più garantito coincidere con l'ordine cronologico reale.
+function sortedWorkoutsAsc(){
+  return state.workouts.slice().sort(function(a,b){
+    if(a.date !== b.date) return a.date < b.date ? -1 : 1;
+    return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+  });
+}
+
+function lastPerformance(exId, excludeId){
+  var list = sortedWorkoutsAsc();
+  for(var i = list.length - 1; i >= 0; i--){
+    var w = list[i];
+    if(excludeId && w.id === excludeId) continue;
     for(var j = 0; j < w.exercises.length; j++){
       if(w.exercises[j].id === exId) return {workout:w, ex:w.exercises[j]};
     }
@@ -476,9 +502,9 @@ function lastPerformance(exId){
 }
 
 // Ritorna {weight, targetLo, targetHi, sets, note, hasHistory}
-function suggestFor(exId, setsCount){
+function suggestFor(exId, setsCount, excludeId){
   var cfg = state.exercises[exId];
-  var perf = lastPerformance(exId);
+  var perf = lastPerformance(exId, excludeId);
   var startWeight = (exId === "leg_raise" || exId === "dips_zavorrate" || exId === "trazioni") ? 0 : 0;
   if(!perf){
     return {
@@ -552,7 +578,7 @@ document.querySelectorAll(".tab-btn").forEach(function(btn){
 /* ============================================================
    STATO SESSIONE DI LOG IN CORSO (non persistito finché non salvo)
    ============================================================ */
-var logSession = null; // {schedaId, variant, sets: {exId: [{peso,reps}, ...]}}
+var logSession = null; // {schedaId, variant, date, editId, exIds, sets: {exId: [{peso,reps,done}, ...]}}
 
 function startLog(schedaId, variant){
   var scheda = SCHEDE[schedaId];
@@ -572,7 +598,21 @@ function startLog(schedaId, variant){
     }
     sets[exId] = arr;
   });
-  logSession = {schedaId: schedaId, variant: !!variant, exIds: exIds, sets: sets};
+  logSession = {schedaId: schedaId, variant: !!variant, date: todayISO(), editId: null, exIds: exIds, sets: sets};
+  showTab("oggi");
+}
+
+// Riapre una seduta già salvata per correggerla (carichi/rip/data sbagliati,
+// o una seduta dimenticata inserita col giorno sbagliato).
+function editSession(id){
+  var w = state.workouts.find(function(x){ return x.id === id; });
+  if(!w) return;
+  var exIds = w.exercises.map(function(e){ return e.id; });
+  var sets = {};
+  w.exercises.forEach(function(e){
+    sets[e.id] = e.sets.map(function(s){ return {peso:s.peso, reps:s.reps, done:true}; });
+  });
+  logSession = {schedaId: w.scheda, variant: !!w.variant, date: w.date, editId: w.id, exIds: exIds, sets: sets};
   showTab("oggi");
 }
 
@@ -586,9 +626,26 @@ function saveLog(){
   var exercisesOut = logSession.exIds.map(function(exId){
     return {id: exId, sets: logSession.sets[exId].map(function(s){ return {peso:s.peso, reps:s.reps}; })};
   });
+  if(logSession.editId){
+    var idx = state.workouts.findIndex(function(w){ return w.id === logSession.editId; });
+    if(idx > -1){
+      state.workouts[idx] = {
+        id: logSession.editId,
+        date: logSession.date || todayISO(),
+        scheda: logSession.schedaId,
+        variant: logSession.variant,
+        exercises: exercisesOut
+      };
+    }
+    persistAll();
+    logSession = null;
+    toast("Seduta aggiornata ✓");
+    render();
+    return;
+  }
   var workout = {
     id: uid(),
-    date: todayISO(),
+    date: logSession.date || todayISO(),
     scheda: logSession.schedaId,
     variant: logSession.variant,
     exercises: exercisesOut
@@ -612,6 +669,14 @@ function stepSet(exId, idx, field, delta){
   render();
 }
 
+function setVal(exId, idx, field, raw){
+  var s = logSession.sets[exId][idx];
+  var v = parseFloat(String(raw).replace(",", "."));
+  if(isNaN(v) || v < 0) v = 0;
+  s[field] = (field === "peso") ? (Math.round(v*100)/100) : Math.round(v);
+  render();
+}
+
 function toggleDone(exId, idx){
   var s = logSession.sets[exId][idx];
   s.done = !s.done;
@@ -631,14 +696,15 @@ function renderOggi(){
     html += '<div class="row between">';
     html += '<h2 style="margin:0">Scheda '+logSession.schedaId+' — '+scheda.name+'</h2>';
     if(logSession.variant) html += '<span class="badge variant">variante no-squat</span>';
+    if(logSession.editId) html += '<span class="badge" style="color:#f2c14e;">modifica</span>';
     html += '</div>';
-    html += '<div class="muted small">'+fmtDateIt(todayISO())+'</div>';
+    html += '<div class="field" style="margin-top:8px;margin-bottom:0;"><label>Data seduta</label><input type="date" value="'+logSession.date+'" max="'+todayISO()+'" data-act="set-date"></div>';
     html += '</div>';
 
     html += '<div class="card">';
     logSession.exIds.forEach(function(exId, exIndex){
       var cfg = state.exercises[exId];
-      var sug = suggestFor(exId, logSession.sets[exId].length);
+      var sug = suggestFor(exId, logSession.sets[exId].length, logSession.editId);
       html += '<div class="exercise">';
       html += '<div class="exname">'+cfg.name+'</div>';
       html += '<div class="exmeta">'+(cfg.kind==="principal" ? "Esercizio principale · " : "")+cfg.lo+(cfg.lo!==cfg.hi?("-"+cfg.hi):"")+" rip · "+logSession.sets[exId].length+" serie · recupero "+formatRest(cfg.rest)+'</div>';
@@ -652,12 +718,12 @@ function renderOggi(){
         html += '<div class="setlabel">S'+(idx+1)+'</div>';
         html += '<div class="stepper-v">';
         html += '<button data-act="step" data-ex="'+exId+'" data-idx="'+idx+'" data-field="peso" data-delta="1">+</button>';
-        html += '<div class="val">'+fmtNum(s.peso)+'<span class="unit">'+cfg.unit+'</span></div>';
+        html += '<div class="val"><input class="val-input" type="number" inputmode="decimal" step="'+cfg.inc+'" min="0" value="'+s.peso+'" data-act="set-val" data-ex="'+exId+'" data-idx="'+idx+'" data-field="peso"><span class="unit">'+cfg.unit+'</span></div>';
         html += '<button data-act="step" data-ex="'+exId+'" data-idx="'+idx+'" data-field="peso" data-delta="-1">−</button>';
         html += '</div>';
         html += '<div class="stepper-v">';
         html += '<button data-act="step" data-ex="'+exId+'" data-idx="'+idx+'" data-field="reps" data-delta="1">+</button>';
-        html += '<div class="val">'+s.reps+'<span class="unit">rip</span></div>';
+        html += '<div class="val"><input class="val-input" type="number" inputmode="numeric" step="1" min="0" value="'+s.reps+'" data-act="set-val" data-ex="'+exId+'" data-idx="'+idx+'" data-field="reps"><span class="unit">rip</span></div>';
         html += '<button data-act="step" data-ex="'+exId+'" data-idx="'+idx+'" data-field="reps" data-delta="-1">−</button>';
         html += '</div>';
         html += '<button class="done-btn'+(s.done?' done':'')+'" data-act="toggle-done" data-ex="'+exId+'" data-idx="'+idx+'">'+(s.done?"✓":"○")+'</button>';
@@ -669,7 +735,7 @@ function renderOggi(){
 
     html += '<div class="btn-row">';
     html += '<button class="btn ghost" data-act="cancel-log">Annulla</button>';
-    html += '<button class="btn primary" data-act="save-log">Salva seduta</button>';
+    html += '<button class="btn primary" data-act="save-log">'+(logSession.editId ? "Salva modifiche" : "Salva seduta")+'</button>';
     html += '</div>';
 
     el.innerHTML = html;
@@ -679,7 +745,8 @@ function renderOggi(){
   // Nessun log in corso: schermata proposta
   var nextId = nextSchedaId();
   var nextScheda = SCHEDE[nextId];
-  var last = state.workouts.length ? state.workouts[state.workouts.length-1] : null;
+  var swAsc = sortedWorkoutsAsc();
+  var last = swAsc.length ? swAsc[swAsc.length-1] : null;
   var bwLast = state.bodyweight.length ? state.bodyweight[state.bodyweight.length-1] : null;
   var bwAvg = sevenDayAvg();
 
@@ -746,13 +813,16 @@ function renderRegistro(){
   if(!state.workouts.length){
     html += '<p class="muted small">Nessuna seduta ancora registrata.</p>';
   } else {
-    var sorted = state.workouts.slice().reverse();
+    var sorted = sortedWorkoutsAsc().reverse();
     sorted.forEach(function(w){
       var scheda = SCHEDE[w.scheda];
       html += '<div class="session-item">';
       html += '<div class="row between head" data-act="toggle-session" data-id="'+w.id+'">';
       html += '<div><strong>'+fmtDateIt(w.date)+'</strong> · Scheda '+w.scheda+(w.variant?' <span class="badge variant">variante</span>':'')+'</div>';
+      html += '<div style="display:flex;gap:6px;">';
+      html += '<button class="btn small ghost" data-act="edit-session" data-id="'+w.id+'" style="width:auto;min-height:38px;padding:6px 12px;">Modifica</button>';
       html += '<button class="btn small danger" data-act="delete-session" data-id="'+w.id+'" style="width:auto;min-height:38px;padding:6px 12px;">Elimina</button>';
+      html += '</div>';
       html += '</div>';
       html += '<div class="session-detail'+(openSessionId===w.id?' open':'')+'" id="detail-'+w.id+'">';
       html += '<table><thead><tr><th>Esercizio</th><th>Serie</th></tr></thead><tbody>';
@@ -1116,6 +1186,9 @@ document.addEventListener("click", function(e){
     var id = t.getAttribute("data-id");
     openSessionId = openSessionId === id ? null : id;
     render();
+  } else if(act === "edit-session"){
+    e.stopPropagation();
+    editSession(t.getAttribute("data-id"));
   } else if(act === "delete-session"){
     e.stopPropagation();
     if(confirm("Eliminare questa seduta?")){
@@ -1212,7 +1285,11 @@ document.addEventListener("click", function(e){
 
 document.addEventListener("change", function(e){
   var t = e.target;
-  if(t.getAttribute && t.getAttribute("data-act") === "set-inc"){
+  if(t.getAttribute && t.getAttribute("data-act") === "set-date"){
+    if(logSession){ logSession.date = t.value || todayISO(); render(); }
+  } else if(t.getAttribute && t.getAttribute("data-act") === "set-val"){
+    if(logSession) setVal(t.getAttribute("data-ex"), parseInt(t.getAttribute("data-idx"),10), t.getAttribute("data-field"), t.value);
+  } else if(t.getAttribute && t.getAttribute("data-act") === "set-inc"){
     var exId = t.getAttribute("data-ex");
     var v = parseFloat(t.value);
     if(!isNaN(v) && v >= 0){
