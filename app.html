@@ -345,7 +345,7 @@ var SCHEDE = {
   C: {name:"Spinta e Tricipiti", exercises:["dips_zavorrate","croci_cavi","trazioni","push_down","french_press","leg_raise"]}
 };
 
-var ROTATION_SEQUENCE = ["B","A","B","C"];
+var ROTATION_SEQUENCE = ["A","B","C"];
 
 /* ============================================================
    STORAGE
@@ -1001,7 +1001,7 @@ function renderConsulta(){
   var el = document.getElementById("view-consulta");
   var html = "";
 
-  html += '<div class="card"><h2>Rotazione</h2><p class="small">Sequenza fissa: <strong>B, A, B, C</strong> poi si ripete. B a inizio settimana, A e C si alternano nel secondo slot.</p></div>';
+  html += '<div class="card"><h2>Rotazione</h2><p class="small">Ciclo puro <strong>A, B, C</strong> che si ripete in base alle sedute fatte, non ai giorni della settimana — ogni scheda torna con la stessa frequenza, circa ogni 10 giorni con 2 sedute a settimana.</p></div>';
 
   html += '<div class="card">'+schedaTable("A")+'</div>';
   html += '<div class="card">'+schedaTable("B", "Variante senza squat: leg press 4×8-10 con 2-3 rip di riserva, non scendere sotto il parallelo.")+'</div>';
@@ -1011,8 +1011,9 @@ function renderConsulta(){
   html += '<p class="small"><strong>Principali (3×6):</strong> tutte le serie a 6 → +5&nbsp;kg su squat e leg press, +2,5&nbsp;kg sul resto.</p>';
   html += '<p class="small"><strong>Accessori (range):</strong> prima si sale con le ripetizioni fino al limite alto; solo quando tutte le serie chiudono al limite alto si aggiunge carico e si riparte dal limite basso.</p>';
   html += '<p class="small"><strong>Leg raise:</strong> ginocchia a 90°, si progredisce con le ripetizioni poi con la zavorra ai piedi.</p>';
-  html += '<p class="small"><strong>Deload:</strong> ogni 7-8 settimane, serie dimezzate, stessi carichi.</p>';
+  html += '<p class="small"><strong>Deload:</strong> ogni ~5 settimane (4 di progressione + 1 di scarico), secondo Project Invictus per la fase di ricomposizione — serie dimezzate, stessi carichi.</p>';
   html += '<p class="small"><strong>Recupero tra le serie</strong> (fasce Project Invictus, per range di ripetizioni): forza 1-5 rip → 3-5\'; ipertrofia 8-12 rip → 1,5-2,5\'; isolamento 12+ rip → 30-90". Valori impostati per esercizio, modificabili in Impostazioni.</p>';
+  html += '<p class="small"><strong>Intensità (RIR)</strong>, da Project Invictus: principali 1-2 rip di riserva; accessori 0-1; leg raise può arrivare a cedimento.</p>';
   html += '</div>';
 
   html += '<div class="card"><h2>Target alimentari</h2>';
