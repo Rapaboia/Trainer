@@ -402,7 +402,8 @@ var LS = {
   bodyweight: "pp_bodyweight_v1",
   rotation: "pp_rotation_index_v1",
   nutrition: "pp_nutrition_v1",
-  restVersion: "pp_rest_version_v1"
+  restVersion: "pp_rest_version_v1",
+  trainingAnalysis: "pp_training_analysis_v1"
 };
 
 var TARGETS = {
@@ -426,7 +427,8 @@ var state = {
   workouts: loadJSON(LS.workouts, []),
   bodyweight: loadJSON(LS.bodyweight, []),
   rotationIndex: loadJSON(LS.rotation, 0),
-  nutrition: loadJSON(LS.nutrition, [])
+  nutrition: loadJSON(LS.nutrition, []),
+  trainingAnalysis: loadJSON(LS.trainingAnalysis, null)
 };
 // Il vecchissimo "check alimentare" (sì/no per kcal/prot/carb/grassi, prima ancora del
 // diario) non aveva il campo "text": quelle voci non sono più leggibili, vengono scartate
@@ -466,6 +468,7 @@ function persistAll(){
   saveJSON(LS.bodyweight, state.bodyweight);
   saveJSON(LS.rotation, state.rotationIndex);
   saveJSON(LS.nutrition, state.nutrition);
+  saveJSON(LS.trainingAnalysis, state.trainingAnalysis);
 }
 
 function dayTypeFor(date){
@@ -551,6 +554,73 @@ function buildDiaryText(limitDays){
 }
 
 /* ============================================================
+   ANALISI ALLENAMENTO (IA) — stesso giro di "copia testo, analizza
+   in chat, incolla il report" usato per il diario alimentare.
+   Qui però il testo incollato non viene parsato: è salvato così
+   com'è e mostrato in cima a "Prossima seduta".
+   ============================================================ */
+function kindLabel(kind){
+  if(kind === "principal") return "principale";
+  if(kind === "legraise") return "isolamento/finisher";
+  return "accessorio";
+}
+function setsText(sets){
+  return sets.map(function(s){ return fmtNum(s.peso)+"x"+s.reps; }).join(", ");
+}
+function exerciseLine(exId, sets){
+  var cfg = state.exercises[exId];
+  return cfg.name + " (" + kindLabel(cfg.kind) + ", target " + cfg.lo + (cfg.lo!==cfg.hi ? "-"+cfg.hi : "") + " rip, incremento " + fmtNum(cfg.inc) + " " + cfg.unit + "): " + setsText(sets);
+}
+function trainingRulesText(){
+  return "Regole di progressione (Project Invictus): esercizi principali (panca piana, squat, dips zavorrate) fissi a 3x6, RPE 7,5-9,5 (1-2 rip di riserva) — quando TUTTE le serie chiudono a 6 rip, alla seduta successiva +5kg su squat/leg press e +2,5kg sul resto. Esercizi accessori (range di ripetizioni), RPE 8,5-10 (0-1 rip di riserva) — si sale prima con le ripetizioni fino al limite alto del range, si aggiunge carico solo quando TUTTE le serie chiudono al limite alto, poi si riparte dal limite basso. Leg raise (isolamento/finisher) può arrivare a RPE 10/cedimento tecnico, ginocchia a 90° per limiti di flessibilità, progressione prima con le ripetizioni poi con zavorra ai piedi. Deload ogni ~5 settimane (dimezzare le serie, stessi carichi). Obiettivo attuale: ricomposizione corporea con deficit leggero; da novembre 2026 fase di massa.";
+}
+function buildSessionAnalysisText(){
+  var list = sortedWorkoutsAsc();
+  if(!list.length) return "Nessuna seduta ancora registrata.";
+  var w = list[list.length-1];
+  var scheda = SCHEDE[w.scheda];
+  var lines = [];
+  lines.push("Analisi ultima seduta — " + fmtDateIt(w.date) + " — Scheda " + w.scheda + " (" + scheda.name + ")" + (w.variant ? " [variante]" : ""));
+  lines.push(trainingRulesText());
+  lines.push("");
+  lines.push("Per ogni esercizio sotto c'è, se esiste, la seduta precedente dello stesso esercizio per il confronto.");
+  lines.push("");
+  w.exercises.forEach(function(e){
+    lines.push("- " + exerciseLine(e.id, e.sets));
+    var prev = lastPerformance(e.id, w.id);
+    lines.push("  precedente" + (prev ? (" (" + fmtDateIt(prev.workout.date) + "): " + setsText(prev.ex.sets)) : ": nessuno storico"));
+  });
+  lines.push("");
+  lines.push("Dammi un report leggibile (non serve un formato rigido): valutazione della seduta, se la progressione è coerente con le regole sopra, eventuali segnali di stallo o affaticamento, cosa aspettarmi/puntare alla prossima Scheda " + w.scheda + ".");
+  return lines.join("\n").trim();
+}
+function buildWeekAnalysisText(days){
+  days = days || 14;
+  var cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  var cutoffISO = isoFromDate(cutoff);
+  var list = sortedWorkoutsAsc().filter(function(w){ return w.date >= cutoffISO; });
+  var lines = [];
+  lines.push("Analisi settimana — ultimi " + days + " giorni (" + list.length + " sedute registrate)");
+  lines.push(trainingRulesText());
+  var avg7 = sevenDayAvg();
+  if(avg7) lines.push("Peso corporeo (media 7gg): " + fmtNum(avg7) + " kg.");
+  lines.push("");
+  if(!list.length){
+    lines.push("(nessuna seduta in questo periodo)");
+  } else {
+    list.forEach(function(w){
+      var scheda = SCHEDE[w.scheda];
+      lines.push(fmtDateIt(w.date) + " — Scheda " + w.scheda + " (" + scheda.name + ")" + (w.variant ? " [variante]" : ""));
+      w.exercises.forEach(function(e){ lines.push("  - " + exerciseLine(e.id, e.sets)); });
+      lines.push("");
+    });
+  }
+  lines.push("Dammi un report leggibile sull'andamento: quali esercizi progrediscono bene, quali sembrano in stallo, se il deload (ogni ~5 settimane) è vicino o già in ritardo, e qualunque altro segnale utile su questo periodo.");
+  return lines.join("\n").trim();
+}
+
+/* ============================================================
    UTIL
    ============================================================ */
 function fmtNum(n){
@@ -558,7 +628,9 @@ function fmtNum(n){
   return (n % 1 === 0) ? String(n) : String(n).replace(".", ",");
 }
 function todayISO(){
-  var d = new Date();
+  return isoFromDate(new Date());
+}
+function isoFromDate(d){
   var m = String(d.getMonth()+1).padStart(2,"0");
   var day = String(d.getDate()).padStart(2,"0");
   return d.getFullYear()+"-"+m+"-"+day;
@@ -874,6 +946,26 @@ function renderOggi(){
   }
   html += '</div>';
 
+  if(state.trainingAnalysis && state.trainingAnalysis.text){
+    html += '<div class="card">';
+    html += '<div class="row between"><h3 style="margin:0;">Ultima analisi IA</h3><button class="btn ghost small" style="width:auto;min-height:34px;padding:4px 10px;" data-act="delete-training-analysis">Elimina</button></div>';
+    html += '<div class="muted small" style="margin-top:4px;">'+fmtDateIt(state.trainingAnalysis.date)+' · '+(state.trainingAnalysis.mode === "settimana" ? "analisi settimana" : "analisi ultima seduta")+'</div>';
+    html += '<div class="small" style="margin-top:10px;white-space:pre-wrap;">'+state.trainingAnalysis.text.replace(/</g,"&lt;")+'</div>';
+    html += '</div>';
+  }
+
+  html += '<div class="card">';
+  html += '<h3 style="margin:0;">Analizza con l\'IA</h3>';
+  html += '<div class="muted small" style="margin-top:6px;">1) Copia il testo e incollalo in chat con Claude, per farti valutare la progressione e suggerire i carichi della prossima seduta. 2) Incolla qui la sua risposta: viene salvata così com\'è e mostrata sopra, prima della prossima seduta.</div>';
+  html += '<div class="btn-row" style="margin-top:10px;">';
+  html += '<button class="btn" data-act="copy-training-analysis" data-mode="sessione"'+(swAsc.length?'':' disabled')+'>Copia ultima sessione</button>';
+  html += '<button class="btn" data-act="copy-training-analysis" data-mode="settimana"'+(swAsc.length?'':' disabled')+'>Copia settimana</button>';
+  html += '</div>';
+  html += '<div id="trainingTextBox"></div>';
+  html += '<div class="field" style="margin-top:14px;"><label>Incolla qui la risposta dell\'IA</label><textarea class="export-box" id="trainingPasteInput" style="min-height:90px;font-family:inherit;font-size:14px;" placeholder="Incolla qui..."></textarea></div>';
+  html += '<button class="btn primary" data-act="save-training-analysis">Salva analisi</button>';
+  html += '</div>';
+
   html += '<div class="card">';
   html += '<h3>Scegli un\'altra scheda</h3>';
   html += '<div class="btn-row">';
@@ -996,7 +1088,8 @@ function toJSON(){
     exercises: state.exercises,
     workouts: state.workouts,
     bodyweight: state.bodyweight,
-    nutrition: state.nutrition
+    nutrition: state.nutrition,
+    trainingAnalysis: state.trainingAnalysis
   }, null, 2);
 }
 
@@ -1044,6 +1137,7 @@ function doExport(format){
 var pesoInput = null;
 var nutriDraft = null; // {id, date, mealType, text} — presente solo mentre si modifica un pasto già salvato
 var macroPasteMessage = ""; // esito dell'ultimo "Applica i macro", mostrato finché non se ne fa un altro o si cambia tab
+var lastTrainingCopyMode = "sessione"; // ricorda quale testo (sessione/settimana) è stato copiato per ultimo, per etichettare l'analisi salvata
 
 function saveNewMeal(text){
   text = String(text || "").trim();
@@ -1487,6 +1581,47 @@ document.addEventListener("click", function(e){
     macroPasteMessage = result.applied ? (result.applied + " pasto/i aggiornati ✓") : "Nessuna riga valida trovata (formato atteso: id|kcal|proteine|carbo|grassi).";
     if(result.applied) toast("Macro applicati ✓");
     render();
+  } else if(act === "copy-training-analysis"){
+    var tmode = t.getAttribute("data-mode");
+    lastTrainingCopyMode = tmode;
+    var trainingText = tmode === "settimana" ? buildWeekAnalysisText(14) : buildSessionAnalysisText();
+    var tbox = document.getElementById("trainingTextBox");
+    if(tbox){
+      tbox.innerHTML = '<div class="field" style="margin-top:12px;"><label>Testo pronto da incollare in chat</label><textarea class="export-box" readonly id="trainingTextarea">'+trainingText.replace(/</g,"&lt;")+'</textarea><button class="btn small" style="margin-top:8px;" data-act="copy-training-analysis-text">Copia negli appunti</button></div>';
+    }
+    var tta = document.getElementById("trainingTextarea");
+    if(tta){
+      tta.select();
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(trainingText).then(function(){ toast("Copiato ✓"); }).catch(function(){});
+      }
+    }
+  } else if(act === "copy-training-analysis-text"){
+    var tta2 = document.getElementById("trainingTextarea");
+    if(tta2){
+      tta2.select();
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(tta2.value).then(function(){ toast("Copiato ✓"); }).catch(function(){ document.execCommand("copy"); toast("Copiato ✓"); });
+      } else {
+        document.execCommand("copy");
+        toast("Copiato ✓");
+      }
+    }
+  } else if(act === "save-training-analysis"){
+    var tpi = document.getElementById("trainingPasteInput");
+    var tval = tpi ? tpi.value.trim() : "";
+    if(tval){
+      state.trainingAnalysis = {text: tval, date: todayISO(), mode: lastTrainingCopyMode || "sessione"};
+      persistAll();
+      toast("Analisi salvata ✓");
+      render();
+    } else {
+      toast("Incolla prima il testo dell'IA");
+    }
+  } else if(act === "delete-training-analysis"){
+    state.trainingAnalysis = null;
+    persistAll();
+    render();
   } else if(act === "force-rotation"){
     var target = t.getAttribute("data-scheda");
     var idx = ROTATION_SEQUENCE.indexOf(target);
@@ -1502,6 +1637,7 @@ document.addEventListener("click", function(e){
       localStorage.removeItem(LS.bodyweight);
       localStorage.removeItem(LS.rotation);
       localStorage.removeItem(LS.nutrition);
+      localStorage.removeItem(LS.trainingAnalysis);
       state.exercises = JSON.parse(JSON.stringify(DEFAULT_EXERCISES));
       state.workouts = [];
       state.bodyweight = [];
@@ -1552,6 +1688,7 @@ document.addEventListener("change", function(e){
         if(data.workouts) state.workouts = data.workouts;
         if(data.bodyweight) state.bodyweight = data.bodyweight;
         if(data.nutrition) state.nutrition = data.nutrition;
+        if(data.trainingAnalysis) state.trainingAnalysis = data.trainingAnalysis;
         persistAll();
         toast("Backup importato ✓");
         render();
