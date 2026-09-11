@@ -356,7 +356,7 @@ var DEFAULT_EXERCISES = {
 };
 
 var SCHEDE = {
-  A: {name:"Petto e Dorso", exercises:["panca_piana","chest_press","pulley_basso","bayesan_curl","curl_manubri_seduto","leg_raise"]},
+  A: {name:"Petto e Dorso", exercises:["panca_piana","chest_press","trazioni","pulley_basso","bayesan_curl","curl_manubri_seduto","leg_raise"]},
   B: {name:"Gambe e Spalle", exercises:["squat","leg_press","calf_raise","lento_avanti","alzate_laterali","face_pull"]},
   C: {name:"Spinta e Tricipiti", exercises:["dips_zavorrate","croci_cavi","trazioni","push_down","french_press","leg_raise"]}
 };
@@ -403,7 +403,8 @@ var LS = {
   rotation: "pp_rotation_index_v1",
   nutrition: "pp_nutrition_v1",
   restVersion: "pp_rest_version_v1",
-  trainingAnalysis: "pp_training_analysis_v1"
+  trainingAnalysis: "pp_training_analysis_v1",
+  logDraft: "pp_log_draft_v1"
 };
 
 var TARGETS = {
@@ -469,6 +470,16 @@ function persistAll(){
   saveJSON(LS.rotation, state.rotationIndex);
   saveJSON(LS.nutrition, state.nutrition);
   saveJSON(LS.trainingAnalysis, state.trainingAnalysis);
+}
+
+// Salva la seduta in corso (logSession) come bozza a parte, così se l'app si chiude
+// o crasha a metà allenamento i carichi/ripetizioni già inseriti non si perdono:
+// al riavvio la bozza viene ricaricata automaticamente (vedi ripristino sotto,
+// dopo la dichiarazione di logSession). Si chiama ad ogni modifica (peso, rip,
+// spunta serie, data) oltre che sul pulsante "Salva" esplicito.
+function persistLogDraft(){
+  if(logSession) saveJSON(LS.logDraft, logSession);
+  else { try{ localStorage.removeItem(LS.logDraft); }catch(e){} }
 }
 
 function dayTypeFor(date){
@@ -685,6 +696,32 @@ function lastPerformance(exId, excludeId){
   return null;
 }
 
+// Peso di riferimento di una seduta: il peso più frequente tra le serie loggate,
+// non semplicemente quello della prima serie. Serve a non farsi sballare il
+// riferimento da un riscaldamento loggato per errore come "Serie 1" (capita
+// quando si logga un primo set più leggero prima delle serie vere di lavoro):
+// se 2 serie su 3 condividono lo stesso peso, è quello il peso di lavoro reale.
+// A parità di frequenza (es. tre pesi tutti diversi) si preferisce il più alto,
+// assumendo che l'eventuale scostamento sia un riscaldamento più leggero e non
+// il contrario (pattern mai osservato finora nei log di Marco).
+function modeWeight(sets){
+  if(!sets.length) return 0;
+  var counts = {}, order = [];
+  sets.forEach(function(s){
+    var key = String(s.peso);
+    if(!(key in counts)){ counts[key] = 0; order.push(key); }
+    counts[key]++;
+  });
+  var best = null, bestCount = 0;
+  order.forEach(function(key){
+    var w = parseFloat(key);
+    if(counts[key] > bestCount || (counts[key] === bestCount && (best === null || w > best))){
+      best = w; bestCount = counts[key];
+    }
+  });
+  return best;
+}
+
 // Ritorna {weight, targetLo, targetHi, sets, note, hasHistory}
 function suggestFor(exId, setsCount, excludeId){
   var cfg = state.exercises[exId];
@@ -699,7 +736,7 @@ function suggestFor(exId, setsCount, excludeId){
     };
   }
   var lastSets = perf.ex.sets;
-  var lastWeight = lastSets.length ? lastSets[0].peso : startWeight;
+  var lastWeight = lastSets.length ? modeWeight(lastSets) : startWeight;
   var allAtTop = lastSets.length > 0 && lastSets.every(function(s){ return s.reps >= cfg.hi; });
 
   var newWeight = lastWeight;
@@ -763,6 +800,10 @@ document.querySelectorAll(".tab-btn").forEach(function(btn){
    STATO SESSIONE DI LOG IN CORSO (non persistito finché non salvo)
    ============================================================ */
 var logSession = null; // {schedaId, variant, date, editId, exIds, sets: {exId: [{peso,reps,done}, ...]}}
+// Ripristino automatico: se l'app si è chiusa/crashata con una seduta in corso, la bozza
+// salvata da persistLogDraft() viene ricaricata qui, prima del primo render — la seduta
+// riprende esattamente da dove era rimasta, senza bisogno di azioni da parte dell'utente.
+logSession = loadJSON(LS.logDraft, null);
 
 function startLog(schedaId, variant){
   var scheda = SCHEDE[schedaId];
@@ -783,6 +824,7 @@ function startLog(schedaId, variant){
     sets[exId] = arr;
   });
   logSession = {schedaId: schedaId, variant: !!variant, date: todayISO(), editId: null, exIds: exIds, sets: sets};
+  persistLogDraft();
   showTab("oggi");
 }
 
@@ -797,12 +839,22 @@ function editSession(id){
     sets[e.id] = e.sets.map(function(s){ return {peso:s.peso, reps:s.reps, done:true}; });
   });
   logSession = {schedaId: w.scheda, variant: !!w.variant, date: w.date, editId: w.id, exIds: exIds, sets: sets};
+  persistLogDraft();
   showTab("oggi");
 }
 
 function cancelLog(){
   logSession = null;
+  persistLogDraft(); // rimuove la bozza salvata, altrimenti riapparirebbe al prossimo avvio
   render();
+}
+
+// Pulsante "Salva": checkpoint esplicito durante la seduta, non la chiude — la bozza è già
+// salvata automaticamente ad ogni modifica, questo dà solo la conferma visibile a schermo.
+function saveLogDraftManual(){
+  if(!logSession) return;
+  persistLogDraft();
+  toast("Progresso salvato ✓");
 }
 
 function saveLog(){
@@ -823,6 +875,7 @@ function saveLog(){
     }
     persistAll();
     logSession = null;
+    persistLogDraft();
     toast("Seduta aggiornata ✓");
     render();
     return;
@@ -838,6 +891,7 @@ function saveLog(){
   advanceRotation();
   persistAll();
   logSession = null;
+  persistLogDraft();
   toast("Seduta salvata ✓");
   render();
 }
@@ -850,6 +904,7 @@ function stepSet(exId, idx, field, delta){
   } else {
     s.reps = Math.max(0, s.reps + delta);
   }
+  persistLogDraft();
   render();
 }
 
@@ -858,12 +913,14 @@ function setVal(exId, idx, field, raw){
   var v = parseFloat(String(raw).replace(",", "."));
   if(isNaN(v) || v < 0) v = 0;
   s[field] = (field === "peso") ? (Math.round(v*100)/100) : Math.round(v);
+  persistLogDraft();
   render();
 }
 
 function toggleDone(exId, idx){
   var s = logSession.sets[exId][idx];
   s.done = !s.done;
+  persistLogDraft();
   render();
 }
 
@@ -919,8 +976,12 @@ function renderOggi(){
 
     html += '<div class="btn-row">';
     html += '<button class="btn ghost" data-act="cancel-log">Annulla</button>';
-    html += '<button class="btn primary" data-act="save-log">'+(logSession.editId ? "Salva modifiche" : "Salva seduta")+'</button>';
+    html += '<button class="btn" data-act="save-log-draft">Salva</button>';
     html += '</div>';
+    html += '<div class="btn-row" style="margin-top:10px;">';
+    html += '<button class="btn primary" data-act="save-log">'+(logSession.editId ? "Chiudi modifiche" : "Chiudi sessione")+'</button>';
+    html += '</div>';
+    html += '<div class="muted small" style="margin-top:6px;">Il progresso si salva da solo ad ogni serie segnata — "Salva" è solo una conferma visiva. "'+(logSession.editId ? "Chiudi modifiche" : "Chiudi sessione")+'" chiude la seduta e la registra nello storico.</div>';
 
     el.innerHTML = html;
     return;
@@ -1638,15 +1699,19 @@ document.addEventListener("click", function(e){
       localStorage.removeItem(LS.rotation);
       localStorage.removeItem(LS.nutrition);
       localStorage.removeItem(LS.trainingAnalysis);
+      localStorage.removeItem(LS.logDraft);
       state.exercises = JSON.parse(JSON.stringify(DEFAULT_EXERCISES));
       state.workouts = [];
       state.bodyweight = [];
       state.rotationIndex = 0;
       state.nutrition = [];
       nutriDraft = null;
+      logSession = null;
       toast("Dati cancellati");
       render();
     }
+  } else if(act === "save-log-draft"){
+    saveLogDraftManual();
   }
 });
 
@@ -1657,7 +1722,7 @@ document.addEventListener("change", function(e){
   } else if(t.getAttribute && t.getAttribute("data-act") === "nutri-edit-text"){
     if(nutriDraft){ nutriDraft.text = t.value; }
   } else if(t.getAttribute && t.getAttribute("data-act") === "set-date"){
-    if(logSession){ logSession.date = t.value || todayISO(); render(); }
+    if(logSession){ logSession.date = t.value || todayISO(); persistLogDraft(); render(); }
   } else if(t.getAttribute && t.getAttribute("data-act") === "set-val"){
     if(logSession) setVal(t.getAttribute("data-ex"), parseInt(t.getAttribute("data-idx"),10), t.getAttribute("data-field"), t.value);
   } else if(t.getAttribute && t.getAttribute("data-act") === "set-inc"){
