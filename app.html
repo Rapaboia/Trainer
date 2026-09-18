@@ -1195,7 +1195,15 @@ var BIKE_RATES = {
 function computeTargetsForDate(date){
   var hasWorkout = state.workouts.some(function(w){ return w.date === date; });
   var baseKey = hasWorkout ? "allenamento" : "riposo";
-  var base = TARGETS[baseKey];
+  // 2026-09-19: prima leggeva sempre TARGETS (i numeri fissi di Ricomposizione), a
+  // prescindere dall'obiettivo scelto in Impostazioni — Marco l'ha notato ("hai
+  // testato se cambiando mesociclo cambia di pari passo anche il piano dieta?": no,
+  // non cambiava). Ora legge i target della fase attuale del Mesociclo: per
+  // Ricomposizione computeMesocicloTargets() restituisce comunque TARGETS
+  // (invariato), per le altre fasi (Cut/Mantenimento/Massa/Reverse) restituisce i
+  // numeri calcolati per quella fase — quindi il diario/"Oggi" ora segue davvero
+  // l'obiettivo impostato, non solo Impostazioni.
+  var base = computeMesocicloTargets()[baseKey];
   var ride = state.bikeRides.find(function(r){ return r.date === date; });
   if(!ride) return {kcal: base.kcal, prot: base.prot, carb: base.carb, grassi: base.grassi, label: base.label, baseKey: baseKey, ride: null};
   var rate = BIKE_RATES[ride.tipo];
@@ -1518,8 +1526,9 @@ function nutritionTotalsForDate(date){
 function buildDiaryText(limitDays){
   var days = nutritionDays(limitDays);
   var lines = [];
+  var mt = computeMesocicloTargets(); // target della fase Mesociclo attuale, non più i fissi a prescindere (vedi computeTargetsForDate)
   lines.push("Diario alimentare — " + (limitDays === 1 ? "oggi" : "ultimi " + limitDays + " giorni"));
-  lines.push("Target: giorno di allenamento " + TARGETS.allenamento.kcal + " kcal / " + TARGETS.allenamento.prot + "g prot / " + TARGETS.allenamento.carb + "g carb / " + TARGETS.allenamento.grassi + "g grassi — giorno di riposo " + TARGETS.riposo.kcal + " kcal / " + TARGETS.riposo.prot + "g prot / " + TARGETS.riposo.carb + "g carb / " + TARGETS.riposo.grassi + "g grassi.");
+  lines.push("Target: giorno di allenamento " + mt.allenamento.kcal + " kcal / " + mt.allenamento.prot + "g prot / " + mt.allenamento.carb + "g carb / " + mt.allenamento.grassi + "g grassi — giorno di riposo " + mt.riposo.kcal + " kcal / " + mt.riposo.prot + "g prot / " + mt.riposo.carb + "g carb / " + mt.riposo.grassi + "g grassi.");
   var avg7 = sevenDayAvg();
   if(avg7) lines.push("Peso corporeo (media 7gg): " + fmtNum(avg7) + " kg.");
   lines.push("");
@@ -2856,7 +2865,7 @@ function renderImpostazioni(){
     var fc = state.bodyConfig;
     var ft = computeFormulaTargets();
     html += '<div class="card"><h2>Target stimati (formula)</h2>';
-    html += '<p class="small muted">Prerequisito per il mesociclo: qui i target di riposo/allenamento sono calcolati da una formula (BMR Mifflin-St Jeor + moltiplicatore di attività, calibrato sui target già confermati a 71kg) invece di essere numeri fissi. <strong>Per ora è solo un confronto</strong> — il diario/"Oggi" continuano a usare i target fissi qui sopra, non questi. Peso usato: media 7gg se disponibile, altrimenti l\'ultima pesata (attualmente '+fmtNum(ft.peso)+'kg → BMR stimato '+ft.bmr+' kcal).</p>';
+    html += '<p class="small muted">Qui i target di riposo/allenamento sono calcolati da una formula (BMR Mifflin-St Jeor + moltiplicatore di attività, calibrato sui target già confermati a 71kg) invece di essere numeri fissi. <strong>Per ora è solo un confronto</strong> — il diario/"Oggi" seguono il Mesociclo qui sotto (fisso per Ricomposizione, calcolato per le altre fasi), non questa formula. Peso usato: media 7gg se disponibile, altrimenti l\'ultima pesata (attualmente '+fmtNum(ft.peso)+'kg → BMR stimato '+ft.bmr+' kcal).</p>';
     html += '<div class="field"><div class="grid2">';
     html += '<div><span class="small muted">Altezza (cm)</span><input type="number" step="1" min="0" value="'+fc.altezza+'" data-act="set-body" data-field="altezza"></div>';
     html += '<div><span class="small muted">Età (anni)</span><input type="number" step="1" min="0" value="'+fc.eta+'" data-act="set-body" data-field="eta"></div>';
@@ -2870,7 +2879,7 @@ function renderImpostazioni(){
   })();
 
   html += '<div class="card"><h2>Mesociclo</h2>';
-  html += '<p class="small muted">Qui imposti l\'obiettivo attuale, da quando, e per quanto — indipendente dal ciclo di allenamento A/B/C (quello resta sui suoi 5 settimane di progressione+scarico, non c\'entra con questa durata). <strong>I target kcal/macro di Alimentazione restano quelli fissi</strong> anche cambiando obiettivo qui sotto: quelli sono calcolati e mostrati solo come confronto, non ancora "vivi" nel diario/Oggi — vedi i numeri più sotto.</p>';
+  html += '<p class="small muted">Qui imposti l\'obiettivo attuale, da quando, e per quanto — indipendente dal ciclo di allenamento A/B/C (quello resta sui suoi 5 settimane di progressione+scarico, non c\'entra con questa durata). <strong>I target kcal/macro di Alimentazione seguono questo obiettivo</strong> (dal 2026-09-19): cambiando qui sotto, cambiano anche il diario/"Oggi" e il testo per l\'analisi IA — vedi i numeri più sotto.</p>';
   html += '<div class="field"><label>Obiettivo attuale</label><div class="btn-row" style="flex-wrap:wrap;">';
   [["ricomposizione","Ricomposizione"],["cut","Cut"],["mantenimento","Mantenimento"],["massa","Massa"],["reverse","Reverse-diet"]].forEach(function(o){
     var oActive = state.mesociclo.obiettivo === o[0];
