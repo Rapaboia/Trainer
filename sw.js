@@ -5,7 +5,7 @@
 // Se apri app.html da solo (senza questo file accanto) l'app funziona comunque:
 // è un unico file autosufficiente, semplicemente senza questa cache di riserva.
 
-var CACHE_NAME = "trainer-app-v20";
+var CACHE_NAME = "trainer-app-v23";
 var APP_SHELL = ["./", "./app.html", "./index.html", "./sw.js"];
 
 self.addEventListener("install", function (event) {
