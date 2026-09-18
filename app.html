@@ -989,7 +989,11 @@ var TARGETS = {
 // solo il Cut). Controllato su projectinvictus.it articolo per articolo:
 //  - Ricomposizione: l'articolo (projectinvictus.it/ricomposizione-corporea/) NON dà
 //    nessuna durata, nè in settimane nè in mesi — resta un valore mio, editabile,
-//    NON sourced.
+//    NON sourced. Marco ha giustamente contestato due volte il valore iniziale (12,
+//    poi 8 gli sembrava ancora troppo): chiesto direttamente a lui invece di tirare
+//    a indovinare una terza volta — risposta: "ogni 4-6 settimane è necessario
+//    analizzare l'andamento e rivalutare". Preso 4 (estremo inferiore della sua
+//    fascia, spinge a rivalutare prima), in linea col Cut.
 //  - Mantenimento: PI non tratta il mantenimento come una "fase" con una durata
 //    propria — è il punto di verifica (1-2 settimane di peso stabile, vedi il
 //    metodo empirico in projectinvictus.it/deficit-calorico-calcolo/, già usato
@@ -1012,7 +1016,7 @@ var TARGETS = {
 //    (projectinvictus.it/mini-cut/) — scelto un valore medio, editabile come gli
 //    altri (unico valore già sourced prima di questo aggiornamento).
 var MESOCICLO_DURATA_DEFAULT = {
-  ricomposizione: 12,
+  ricomposizione: 4,
   mantenimento: 8,
   massa: 8,
   reverse: 6,
@@ -1332,6 +1336,23 @@ var ACTIVITY_MULT = {
   riposo: TARGETS.riposo.kcal / estimatedBMR(BMR_REFERENCE_WEIGHT),
   allenamento: TARGETS.allenamento.kcal / estimatedBMR(BMR_REFERENCE_WEIGHT)
 };
+
+// --- Stima massa grassa: metodo a nastro US Navy (2026-09-19) ---------
+// Discusso con Marco: la sua bilancia BIA Xiaomi giudicata "non particolarmente
+// affidabile" — confermato dalla letteratura (le smart scale BIA sottostimano
+// la massa grassa anche di 2-4,4kg vs DEXA e sono molto sensibili a
+// idratazione/orario/cibo: studio 2021, JMIR mHealth, citato via bodyspec.com).
+// Il metodo a nastro è l'alternativa proposta, senza attrezzatura: formula
+// metrica per uomini (fonte: omnicalculator.com / med.libretexts.org, metodo
+// US Navy). Margine di errore tipico ±3-4 punti percentuali — va letto come un
+// trend nel tempo (più misurazioni, stessa logica della media 7gg sul peso),
+// mai come un valore assoluto preciso da una singola misurazione.
+function navyBodyFatMale(vitaCm, colloCm, altezzaCm){
+  if(!vitaCm || !colloCm || !altezzaCm || vitaCm <= colloCm) return null;
+  var bf = 495 / (1.0324 - 0.19077*Math.log10(vitaCm - colloCm) + 0.15456*Math.log10(altezzaCm)) - 450;
+  if(!isFinite(bf) || bf <= 0 || bf >= 100) return null;
+  return Math.round(bf * 10) / 10;
+}
 
 // --- Stima target Kathrine (compagna) ---------------------------------
 // Formula di Mifflin-St Jeor versione femminile (quella sopra, estimatedBMR,
@@ -2085,6 +2106,9 @@ function renderOggi(){
   if(bwAvg !== null){
     html += '<div class="card"><div class="row between"><span class="muted small">Media peso 7 giorni</span><span style="font-weight:700;">'+fmtNum(bwAvg)+' kg</span></div></div>';
   }
+  if(bwLast && bwLast.bf != null){
+    html += '<div class="card"><div class="row between"><span class="muted small">Ultima stima massa grassa</span><span style="font-weight:700;">'+fmtNum(bwLast.bf)+'% ('+fmtDateIt(bwLast.date)+')</span></div></div>';
+  }
 
   html += buildRegistroHTML();
 
@@ -2178,9 +2202,9 @@ function toCSV(){
 
   rows.push([]);
   rows.push(["=== PESO CORPOREO ==="]);
-  rows.push(["data","peso_kg"]);
+  rows.push(["data","peso_kg","vita_cm","collo_cm","grasso_percento"]);
   state.bodyweight.slice().sort(function(a,b){ return a.date < b.date ? -1 : 1; }).forEach(function(b){
-    rows.push([b.date, fmtNum(b.peso)]);
+    rows.push([b.date, fmtNum(b.peso), b.vita!=null?fmtNum(b.vita):"", b.collo!=null?fmtNum(b.collo):"", b.bf!=null?fmtNum(b.bf):""]);
   });
 
   rows.push([]);
@@ -2255,6 +2279,8 @@ function doExport(format){
    RENDER: PESO
    ============================================================ */
 var pesoInput = null;
+var vitaInput = null;  // circonferenza vita (cm) del giorno, in modifica prima di salvare — null = non ancora inizializzato, "" = campo lasciato vuoto di proposito
+var colloInput = null; // circonferenza collo (cm), stessa logica di vitaInput
 var bikeOreInput = null; // ore dell'uscita in bici di oggi, in modifica prima di salvare
 var bikeTipoInput = undefined; // tipo scelto ma non ancora salvato ("gravel"/"enduro"/null); undefined = non ancora inizializzato da state
 var nutriDraft = null; // {id, date, mealType, text} — presente solo mentre si modifica un pasto già salvato
@@ -2349,10 +2375,18 @@ function applyMacroPaste(text){
 // sola vista) — logica invariata, solo restituisce una stringa invece di
 // scrivere direttamente nel suo vecchio contenitore.
 function buildSaluteHTML(){
+  var todayEntry = state.bodyweight.find(function(b){ return b.date === todayISO(); });
   if(pesoInput === null){
     var last = state.bodyweight.length ? state.bodyweight[state.bodyweight.length-1].peso : 71;
-    var todayEntry = state.bodyweight.find(function(b){ return b.date === todayISO(); });
     pesoInput = todayEntry ? todayEntry.peso : last;
+  }
+  if(vitaInput === null){
+    var lastV = state.bodyweight.slice().reverse().find(function(b){ return b.vita; });
+    vitaInput = (todayEntry && todayEntry.vita) ? todayEntry.vita : (lastV ? lastV.vita : "");
+  }
+  if(colloInput === null){
+    var lastC = state.bodyweight.slice().reverse().find(function(b){ return b.collo; });
+    colloInput = (todayEntry && todayEntry.collo) ? todayEntry.collo : (lastC ? lastC.collo : "");
   }
   var avg7 = sevenDayAvg();
 
@@ -2439,6 +2473,29 @@ function buildSaluteHTML(){
   html += '<button class="btn small" data-act="peso-step" data-delta="-0.1">−0,1</button>';
   html += '<button class="btn small" data-act="peso-step" data-delta="0.1">+0,1</button>';
   html += '</div>';
+
+  html += '<hr class="sep" style="margin:16px 0;">';
+  html += '<div class="small muted">Circonferenze (opzionale — per stimare la massa grassa)</div>';
+  html += '<p class="small muted" style="margin-top:4px;">Misura al mattino, a digiuno, prima di mangiare/bere: vita all\'altezza dell\'ombelico, collo appena sotto il pomo d\'Adamo. Lascia vuoto se oggi non le misuri.</p>';
+  html += '<div class="grid2" style="margin-top:8px;">';
+  html += '<div><span class="small muted">Vita (cm)</span><input type="number" step="0.5" min="0" value="'+vitaInput+'" data-act="set-circ" data-field="vita"></div>';
+  html += '<div><span class="small muted">Collo (cm)</span><input type="number" step="0.5" min="0" value="'+colloInput+'" data-act="set-circ" data-field="collo"></div>';
+  html += '</div>';
+  (function(){
+    var bfNow = navyBodyFatMale(parseFloat(vitaInput), parseFloat(colloInput), state.bodyConfig.altezza);
+    if(bfNow != null){
+      var massaGrassaKg = Math.round(pesoInput * bfNow / 100 * 10) / 10;
+      var massaMagraKg = Math.round((pesoInput - massaGrassaKg) * 10) / 10;
+      html += '<div class="grid2" style="margin-top:10px;">';
+      html += '<div class="stat"><div class="num">'+fmtNum(bfNow)+'%</div><div class="label">Massa grassa stimata</div></div>';
+      html += '<div class="stat"><div class="num">'+fmtNum(massaMagraKg)+' kg</div><div class="label">Massa magra stimata</div></div>';
+      html += '</div>';
+      html += '<p class="small muted" style="margin-top:6px;">Metodo a nastro US Navy, altezza '+state.bodyConfig.altezza+'cm (da Impostazioni). ⚠ Margine tipico ±3-4 punti percentuali — guarda il trend nel tempo (più misurazioni), non il singolo numero, come per il peso.</p>';
+    } else if(vitaInput !== "" || colloInput !== ""){
+      html += '<p class="small muted" style="margin-top:8px;">Inserisci sia vita che collo (vita maggiore del collo) per calcolare la stima.</p>';
+    }
+  })();
+
   html += '<button class="btn primary" style="margin-top:14px;" data-act="save-peso">Salva peso di oggi</button>';
   html += '</div>';
 
@@ -2456,9 +2513,10 @@ function buildSaluteHTML(){
     html += '<p class="muted small">Nessuna pesata registrata.</p>';
   } else {
     var sorted = state.bodyweight.slice().sort(function(a,b){ return a.date < b.date ? 1 : -1; }).slice(0,14);
-    html += '<table><thead><tr><th>Data</th><th>Peso</th><th></th></tr></thead><tbody>';
+    html += '<table><thead><tr><th>Data</th><th>Peso</th><th>Grasso</th><th></th></tr></thead><tbody>';
     sorted.forEach(function(b){
-      html += '<tr><td>'+fmtDateIt(b.date)+'</td><td>'+fmtNum(b.peso)+' kg</td><td><button class="btn small danger" style="width:auto;min-height:34px;padding:4px 10px;" data-act="delete-peso" data-date="'+b.date+'">×</button></td></tr>';
+      var bfCell = (b.bf != null) ? (fmtNum(b.bf)+'%') : '—';
+      html += '<tr><td>'+fmtDateIt(b.date)+'</td><td>'+fmtNum(b.peso)+' kg</td><td>'+bfCell+'</td><td><button class="btn small danger" style="width:auto;min-height:34px;padding:4px 10px;" data-act="delete-peso" data-date="'+b.date+'">×</button></td></tr>';
     });
     html += '</tbody></table>';
   }
@@ -2854,7 +2912,7 @@ function renderImpostazioni(){
     html += '<div><span class="small muted">Iniziato il</span><input type="date" value="'+inizio+'" data-act="set-mesociclo" data-field="dataInizio"></div>';
     html += '<div><span class="small muted">Durata (settimane)</span><input type="number" step="1" min="'+minAttr+'"'+maxAttr+' value="'+durata+'" data-act="set-mesociclo" data-field="durataSettimane"></div>';
     html += '</div>';
-    html += '<p class="small muted" style="margin-top:6px;">Fine prevista: <strong>'+fmtDateIt(fine)+'</strong> — la durata di default (Ricomposizione 12, Mantenimento 8, Massa 8, Reverse 6 settimane, precompilata al cambio obiettivo) è un mio punto di partenza pratico per la pianificazione, non un numero da studio: modificala come preferisci, e a fine periodo il promemoria serve solo a ricordarti di rivalutare, non scatta nulla in automatico.</p>';
+    html += '<p class="small muted" style="margin-top:6px;">Fine prevista: <strong>'+fmtDateIt(fine)+'</strong> — la durata di default (Ricomposizione 4, Mantenimento 8, Massa 8, Reverse 6 settimane, precompilata al cambio obiettivo) è un mio punto di partenza pratico per la pianificazione, non un numero da studio: modificala come preferisci, e a fine periodo il promemoria serve solo a ricordarti di rivalutare, non scatta nulla in automatico.</p>';
     if(range){
       html += '<p class="small muted" style="margin-top:4px;">Per "'+(MESOCICLO_OBJ_LABELS[state.mesociclo.obiettivo]||state.mesociclo.obiettivo)+'" il campo è limitato a '+range.min+'-'+range.max+' settimane: fascia indicata da Project Invictus per questa fase (non un limite arbitrario), i valori fuori fascia vengono riportati al limite più vicino.</p>';
     }
@@ -2999,9 +3057,16 @@ document.addEventListener("click", function(e){
     render();
   } else if(act === "save-peso"){
     var d = todayISO();
+    var vitaVal = (vitaInput === "" || vitaInput == null) ? null : parseFloat(vitaInput);
+    var colloVal = (colloInput === "" || colloInput == null) ? null : parseFloat(colloInput);
+    var bfVal = navyBodyFatMale(vitaVal, colloVal, state.bodyConfig.altezza);
+    var entry = {date: d, peso: pesoInput};
+    if(vitaVal != null) entry.vita = vitaVal;
+    if(colloVal != null) entry.collo = colloVal;
+    if(bfVal != null) entry.bf = bfVal;
     var existing = state.bodyweight.find(function(b){ return b.date === d; });
-    if(existing) existing.peso = pesoInput;
-    else state.bodyweight.push({date: d, peso: pesoInput});
+    if(existing) Object.assign(existing, entry);
+    else state.bodyweight.push(entry);
     persistAll();
     toast("Peso salvato ✓");
     render();
@@ -3222,6 +3287,7 @@ document.addEventListener("click", function(e){
     state.mesociclo.durataSettimane = MESOCICLO_DURATA_DEFAULT[newObiettivo] || 8;
     if(newObiettivo === "reverse") state.mesociclo.reverseStep = 1;
     persistAll();
+    toast("Mesociclo impostato su "+(MESOCICLO_OBJ_LABELS[newObiettivo]||newObiettivo)+" ✓");
     render();
   } else if(act === "set-reverse-step"){
     state.mesociclo.reverseStep = parseInt(t.getAttribute("data-step"), 10) || 1;
@@ -3352,6 +3418,7 @@ document.addEventListener("change", function(e){
       }
     }
     persistAll();
+    toast("Mesociclo aggiornato ✓");
     render();
   } else if(t.getAttribute && t.getAttribute("data-act") === "set-body"){
     var bField = t.getAttribute("data-field");
@@ -3362,6 +3429,13 @@ document.addEventListener("change", function(e){
       toast("Aggiornato");
       render();
     }
+  } else if(t.getAttribute && t.getAttribute("data-act") === "set-circ"){
+    var cField = t.getAttribute("data-field");
+    var cRaw = String(t.value).replace(",", ".").trim();
+    var cVal = cRaw === "" ? "" : parseFloat(cRaw);
+    if(cField === "vita") vitaInput = (cVal === "" || isNaN(cVal)) ? "" : cVal;
+    else if(cField === "collo") colloInput = (cVal === "" || isNaN(cVal)) ? "" : cVal;
+    render();
   } else if(t.getAttribute && t.getAttribute("data-act") === "import-file"){
     var file = t.files && t.files[0];
     if(!file) return;
