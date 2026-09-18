@@ -1,11 +1,11 @@
-// Service worker per l'app Palestra.
+// Service worker per l'app Trainer.
 // Serve SOLO quando app.html viene ospitata online (https) insieme a questo file
 // nella stessa cartella: garantisce che l'app si apra anche a zero campo,
 // anche dopo aver chiuso del tutto Safari / riavviato il telefono.
 // Se apri app.html da solo (senza questo file accanto) l'app funziona comunque:
 // è un unico file autosufficiente, semplicemente senza questa cache di riserva.
 
-var CACHE_NAME = "palestra-app-v6";
+var CACHE_NAME = "trainer-app-v12";
 var APP_SHELL = ["./", "./app.html", "./index.html", "./sw.js"];
 
 self.addEventListener("install", function (event) {
