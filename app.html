@@ -733,13 +733,9 @@ function prepHintForIngredient(name){
    con formati troppo variabili per una cifra unica (mirtilli freschi:
    125/160/250g a seconda della linea; Coco Pops: 365-500g) restano in
    grammi soltanto — non è ambiguità mia, è che il mercato reale non ha un
-   formato unico. Le uova sono gestite a parte (peso medio editabile, non un
-   dato fisso: varia troppo per taglia). L'Albume e' gestito a parte allo
-   stesso modo (formato cartone editabile, non un dato fisso): Marco l'ha
-   confermato in cartone (2026-09-18), ma i formati reali in commercio
-   variano - 250g (Cascina Italia), 500g (le Naturelle/Coop/Carrefour),
-   1000g (Esselunga/le Naturelle) - nessuno dominante, quindi editabile
-   con default 500g (il piu' diffuso tra i tre) invece di un'ipotesi fissa.
+   formato unico. Uova e Albume: avevano una conversione dedicata (peso medio
+   uovo / formato cartone, editabili) tolta su richiesta di Marco il 2026-09-19
+   ("non mi interessano") — restano in grammi come gli altri ingredienti sfusi.
    ============================================================ */
 var PACKAGE_HINTS = [
   {match:/^Yogurt greco 0%$/i, unitG:150, label:"vasetto da 150g"}, // dichiarato da Marco
@@ -769,13 +765,10 @@ function isNoQtyPackaged(name){
 function shoppingQtyLine(item){
   if(isNoQtyPackaged(item.name)) return null;
   var qtyLine = fmtNum(item.qty)+' '+item.unit;
-  if(item.unit === "g" && /^Uova crude$/i.test(item.name)){
-    var eggCount = Math.ceil(item.qty / state.uovoPesoMedio);
-    qtyLine += ' (≈ '+eggCount+' uova)';
-  } else if(item.unit === "g" && /^Albume$/i.test(item.name)){
-    var albN = Math.ceil(item.qty / state.albumeCartonG);
-    qtyLine += ' (≈ '+albN+' × cartone da '+state.albumeCartonG+'g)';
-  } else if(item.unit === "g"){
+  // Uova/Albume: niente conversione a uova/cartoni (tolta su richiesta di Marco,
+  // 2026-09-19: "non mi interessano") — restano in grammi come gli altri ingredienti
+  // sfusi, coerente col resto della lista.
+  if(item.unit === "g"){
     var pkg = packageHintForIngredient(item.name);
     if(pkg){
       var n = Math.ceil(item.qty / pkg.unitG);
@@ -792,8 +785,7 @@ function shoppingQtyLine(item){
 // resettate da sole (rischierebbe di perdere spunte fatte a metà spesa).
 function shoppingListHTML(){
   var wmList = buildMealPlanShoppingList();
-  var html = '<div class="field" style="max-width:260px;"><label>Peso medio di un uovo (g) — indicativo (EU medie ≈53-63g, grandi ≈63-73g), regola sul tuo</label><input type="number" inputmode="numeric" min="1" value="'+state.uovoPesoMedio+'" data-act="set-egg-weight"></div>';
-  html += '<div class="field" style="max-width:260px;"><label>Formato cartone Albume (g) — Marco lo compra in cartone, formati reali in commercio: 250g (es. Cascina Italia), 500g (le Naturelle, Coop, Carrefour), 1000g (Esselunga, le Naturelle) — regola su quello che compri davvero</label><input type="number" inputmode="numeric" min="1" value="'+state.albumeCartonG+'" data-act="set-albume-carton"></div>';
+  var html = '';
   wmList.forEach(function(item){
     var hint = prepHintForIngredient(item.name);
     var qtyLine = shoppingQtyLine(item);
@@ -920,6 +912,50 @@ function dailyCookTasksFor(dayKey){
   return tasks;
 }
 
+// Riepilogo in cima al piano di cucina (aggiunto 2026-09-19 dopo che a Marco
+// sembrava che l'app suggerisse "solo riso"): un'unica lista di TUTTO quello
+// da preparare questa settimana (congelati + cotture in blocco insieme, non
+// più separati in card diverse da scoprire scorrendo), più l'elenco esplicito
+// degli ingredienti del piano pasti che NON hanno una preparazione (uova,
+// legumi in scatola, mozzarella, pane...) — non è un buco del sistema, è che
+// per quegli ingredienti non serve alcuna preparazione in anticipo, ma senza
+// dirlo esplicitamente sembra che l'app li abbia dimenticati.
+function weekPrepSummary(cookPlan){
+  var matched = {}, matchedOrder = [];
+  cookPlan.freezerPrep.forEach(function(item){
+    if(!(item.combo.id in matched)){ matched[item.combo.id] = {name: item.combo.name, qty: 0, unit: item.unit, kind: "congelare"}; matchedOrder.push(item.combo.id); }
+    matched[item.combo.id].qty += item.qty;
+  });
+  cookPlan.sessions.forEach(function(s){
+    s.items.forEach(function(item){
+      if(!(item.combo.id in matched)){ matched[item.combo.id] = {name: item.combo.name, qty: 0, unit: item.unit, kind: "cuocere"}; matchedOrder.push(item.combo.id); }
+      matched[item.combo.id].qty += item.qty;
+    });
+  });
+
+  var allIngredientNames = {}, unmatchedNames = {}, unmatchedOrder = [];
+  WEEKDAYS.forEach(function(d){
+    var g = weekMenuDay(d.key);
+    MEALI_ORDER[g.tipo].forEach(function(mealKey){
+      var meal = PASTI_TIPO[g.tipo][mealKey];
+      var opt = meal.options.find(function(o){ return o.id === g.pasti[mealKey]; });
+      if(!opt) return;
+      opt.ingredients.forEach(function(ing){
+        allIngredientNames[ing.name] = true;
+        if(!prepHintForIngredient(ing.name) && !(ing.name in unmatchedNames)){
+          unmatchedNames[ing.name] = true;
+          unmatchedOrder.push(ing.name);
+        }
+      });
+    });
+  });
+
+  return {
+    matched: matchedOrder.map(function(id){ return matched[id]; }),
+    unmatched: unmatchedOrder
+  };
+}
+
 /* ============================================================
    STORAGE
    ============================================================ */
@@ -938,17 +974,203 @@ var LS = {
   bodyConfig: "pp_body_config_v1",
   weekMenu: "pp_week_menu_v1",
   cookDays: "pp_cook_days_v1",
-  uovoPesoMedio: "pp_uovo_peso_medio_v1",
   mesociclo: "pp_mesociclo_v1",
   partner: "pp_partner_v1",
-  shoppingChecked: "pp_shopping_checked_v1",
-  albumeCartonG: "pp_albume_carton_g_v1"
+  shoppingChecked: "pp_shopping_checked_v1"
 };
 
 var TARGETS = {
   allenamento: {kcal: 2250, prot: 150, carb: 250, grassi: 65, label:"Giorno di allenamento"},
   riposo:      {kcal: 1970, prot: 150, carb: 180, grassi: 65, label:"Giorno di riposo"}
 };
+
+// Durata di default per obiettivo del Mesociclo (aggiornato 2026-09-19 — Marco ha
+// chiesto esplicitamente "come durata, cosa dice Invictus?" per tutte le fasi, non
+// solo il Cut). Controllato su projectinvictus.it articolo per articolo:
+//  - Ricomposizione: l'articolo (projectinvictus.it/ricomposizione-corporea/) NON dà
+//    nessuna durata, nè in settimane nè in mesi — resta un valore mio, editabile,
+//    NON sourced.
+//  - Mantenimento: PI non tratta il mantenimento come una "fase" con una durata
+//    propria — è il punto di verifica (1-2 settimane di peso stabile, vedi il
+//    metodo empirico in projectinvictus.it/deficit-calorico-calcolo/, già usato
+//    sopra per il Cut) oppure il punto di arrivo di una Reverse, da cui poi si
+//    decide. Il valore qui resta un mio placeholder editabile, NON sourced.
+//  - Massa: nessuna durata fissa nemmeno qui ("continua finché non raggiungi la
+//    condizione e il peso obiettivo", dieta-per-la-massa-muscolare) MA l'articolo dà
+//    un'indicazione concreta: dopo 4-10 settimane di surplus il corpo tende a
+//    diventare più insulino-resistente e conviene una pausa di 10-14 giorni a
+//    mantenimento prima di riprendere — in pratica dei blocchi di massa da 4-10
+//    settimane. Preso il valore medio 8, coerente con come qui sotto il
+//    "suggeritore di fase successiva" propone un Cut/mini-cut alla fine di un
+//    mesociclo di Massa (projectinvictus.it/dieta-per-la-massa-muscolare/).
+//  - Reverse: l'articolo lo dice esplicitamente — "non ci sono tempistiche precise",
+//    si procede per step finché non si raggiunge la normocalorica; l'esempio a 14
+//    settimane nell'articolo è dichiarato illustrativo, non prescrittivo
+//    (projectinvictus.it/reverse-diet/). Valore qui resta un mio placeholder
+//    editabile, NON sourced.
+//  - Cut: 4 settimane, dentro la fascia "mini cut" 2-6 settimane di Project Invictus
+//    (projectinvictus.it/mini-cut/) — scelto un valore medio, editabile come gli
+//    altri (unico valore già sourced prima di questo aggiornamento).
+var MESOCICLO_DURATA_DEFAULT = {
+  ricomposizione: 12,
+  mantenimento: 8,
+  massa: 8,
+  reverse: 6,
+  cut: 4
+};
+
+// Limiti massimi/minimi impostabili per la durata (2026-09-19) — Marco ha chiesto
+// di imporre i parametri massimi secondo Invictus. Messo un min/max SOLO dove PI dà
+// davvero una fascia numerica (Cut e Massa, vedi commento sopra); per Ricomposizione,
+// Mantenimento e Reverse PI non dà nessuna fascia, quindi restano liberi (nessun
+// limite inventato) — solo il minimo pratico di 1 settimana per tutti.
+var MESOCICLO_DURATA_RANGE = {
+  cut:   {min: 2, max: 6},   // mini-cut, projectinvictus.it/mini-cut/
+  massa: {min: 4, max: 10}   // blocco prima della pausa da insulino-resistenza, projectinvictus.it/dieta-per-la-massa-muscolare/
+};
+
+// Target Mantenimento/Massa/Reverse-diet (2026-09-19) — Marco ha giustamente fatto
+// notare che i piani di Mattia Mauro già analizzati (stesso nutrizionista, Dr.
+// Angotti) HANNO kcal reali diverse per fase, e che andavano studiati meglio invece
+// di dire "non ho un deficit/surplus verificato". Riletti i 4 PDF con pdfplumber,
+// pagina delle tabelle "TOT. KCAL" (non stimati, letti dal documento):
+//   REVERSE_1: riposo 2011 kcal (prot 138g/carb 224g/grassi 57g) — allenamento 2312 kcal
+//   REVERSE_2: riposo 2142 kcal — allenamento 2358 kcal
+//   REVERSE_3: riposo 2213 kcal — allenamento 2513 kcal
+//   BULK:      riposo 2353 kcal — allenamento 2754 kcal
+// Da qui SOLO il pattern percentuale di crescita da uno step al successivo (non i
+// kcal assoluti di Mattia, calibrati su di lui): riposo +6,51% / +3,31% / +6,33%,
+// allenamento +1,99% / +6,57% / +9,59%. Applicato ai TARGETS fissi di Marco (che per
+// coincidenza sono già vicinissimi a REVERSE_1 di Mattia: 1970/2250 contro 2011/2312)
+// invece di copiare i numeri di Mattia. Proteine e grassi restano ai grammi fissi
+// attuali di Marco a ogni step (osservato nei piani reali: variano di pochi grammi,
+// l'aumento va quasi tutto nei carboidrati) — i carboidrati si ricavano a riempimento
+// dalle kcal risultanti, stesso metodo già usato in computeFormulaTargets.
+var REVERSE_STEP_MULT = [
+  {step: 1, riposo: 2142/2011, allenamento: 2358/2312},
+  {step: 2, riposo: 2213/2142, allenamento: 2513/2358},
+  {step: 3, riposo: 2353/2213, allenamento: 2754/2513}
+];
+
+function scaleTargetsByMult(mult){
+  var out = {};
+  ["riposo","allenamento"].forEach(function(key){
+    var base = TARGETS[key];
+    var kcal = Math.round(base.kcal * mult[key]);
+    var prot = base.prot, grassi = base.grassi;
+    var carb = Math.round((kcal - prot*4 - grassi*9) / 4);
+    out[key] = {kcal: kcal, prot: prot, carb: carb, grassi: grassi, label: base.label};
+  });
+  return out;
+}
+// Target Cut (rifatto il 2026-09-19, seconda versione — la prima, basata sul rapporto
+// con la scheda Cut reale di Mattia Mauro, non teneva: vedi roadmap.md per il perché).
+// Marco ha chiesto "Invictus cosa farebbe?" — studiato su projectinvictus.it invece di
+// continuare a tirare a indovinare dai PDF di Mattia:
+//  - Il deficit va calcolato sulla normocalorica (mantenimento), MAI direttamente sopra
+//    un altro deficit già in corso — fonte: guida reverse diet PI ("dalla ipercalorica
+//    torna alla normocalorica e solo poi scendi in ipocalorica", stesso principio esteso
+//    da bulk→cut a deficit→deficit). La tua Ricomposizione attuale è già descritta come
+//    "deficit leggero" in programma.md, quindi NON va usata come base per il Cut — si usa
+//    invece il Mantenimento già calcolato in app (≈ normocalorica), verificato prima con
+//    1-2 settimane di peso stabile (media 7gg) nella pratica.
+//  - Entità del deficit: 350-500 kcal/die, tipicamente 500 per un uomo (meno, 100-200,
+//    solo se già molto magro — non il tuo caso, ti descrivi "un po' in sovrappeso").
+//  - Durata: "mini cut" di 2-6 settimane invece di un unico cut lungo, poi si ritorna a
+//    normocalorica prima del prossimo — coerente con l'idea di "minicut progressivi" che
+//    hai proposto tu, corretta solo sul punto di partenza (da normocalorica, non dal
+//    mesociclo immediatamente precedente se quello è già un deficit).
+// Fonti: projectinvictus.it/deficit-calorico-calcolo/ (entità deficit, verifica empirica
+// del mantenimento) e projectinvictus.it/mini-cut/ (durata, punto di partenza).
+// Nota: per ora Marco non prevede un Cut a breve (piano attuale: Ricomposizione → Reverse
+// → Massa) — questa è la formula pronta per quando servirà.
+var CUT_DEFICIT_KCAL = 500;
+function scaleTargetsByDelta(baseTargets, deltaKcal){
+  var out = {};
+  ["riposo","allenamento"].forEach(function(key){
+    var base = baseTargets[key];
+    var kcal = base.kcal + deltaKcal;
+    var prot = base.prot, grassi = base.grassi;
+    var carb = Math.round((kcal - prot*4 - grassi*9) / 4);
+    out[key] = {kcal: kcal, prot: prot, carb: carb, grassi: grassi, label: base.label};
+  });
+  return out;
+}
+// Target per obiettivo del Mesociclo: Ricomposizione = i TARGETS fissi attuali
+// (il piano vero di Angotti, invariato); Mantenimento = il più piccolo/prudente
+// degli step di reverse (step 1), come proxy ragionevole di "qualcosa in più del
+// deficit ma non ancora un vero bulk", usato anche come normocalorica di riferimento
+// per il Cut; Reverse-diet = step scelto (1/2/3, cumulativo dallo step precedente);
+// Massa = tutti e 3 gli step applicati in sequenza (equivalente al salto totale fino
+// al livello BULK di Mattia); Cut = Mantenimento meno CUT_DEFICIT_KCAL (vedi sopra).
+function computeMesocicloTargets(){
+  var ob = state.mesociclo.obiettivo;
+  if(ob === "ricomposizione") return TARGETS;
+  var mantenimento = scaleTargetsByMult(REVERSE_STEP_MULT[0]);
+  if(ob === "cut") return scaleTargetsByDelta(mantenimento, -CUT_DEFICIT_KCAL);
+  if(ob === "mantenimento") return mantenimento;
+  var uptoStep = ob === "massa" ? 3 : Math.min(Math.max(state.mesociclo.reverseStep || 1, 1), 3);
+  var cum = {riposo: 1, allenamento: 1};
+  for(var i=0; i<uptoStep; i++){
+    cum.riposo *= REVERSE_STEP_MULT[i].riposo;
+    cum.allenamento *= REVERSE_STEP_MULT[i].allenamento;
+  }
+  return scaleTargetsByMult(cum);
+}
+
+var MESOCICLO_OBJ_LABELS = {ricomposizione:"Ricomposizione", cut:"Cut", mantenimento:"Mantenimento", massa:"Massa", reverse:"Reverse-diet"};
+
+// Suggeritore di fase successiva a fine Mesociclo (2026-09-19) — chiude il cerchio
+// sulla teoria Invictus studiata con Marco in questa stessa sessione: Cut → Reverse è
+// obbligatorio (non si salta la normocalorica, projectinvictus.it/mini-cut/);
+// Ricomposizione → Reverse segue il piano già scritto in dieta.md (Ricomposizione poi
+// Massa via reverse diet, non un salto diretto); Massa lunga → valutare un mini-cut per
+// contenere il grasso (stessa fonte); Reverse e Mantenimento arrivano entrambi alla
+// normocalorica, da lì è una scelta di Marco (Massa o Cut) — nessuna direzione può
+// essere suggerita in automatico, si propongono entrambe.
+var NEXT_PHASE_SUGGESTION = {
+  ricomposizione: {obiettivo:"reverse", why:"verso la fase di Massa già pianificata (dieta.md) — si passa dalla normocalorica prima del bulk, non si salta direttamente"},
+  cut:            {obiettivo:"reverse", why:"dopo un Cut si torna sempre alla normocalorica in modo graduale prima di decidere il prossimo passo (Project Invictus)"},
+  massa:          {obiettivo:"cut", why:"in una fase di massa lunga conviene inserire un mini-cut periodico per contenere il grasso accumulato (Project Invictus)"},
+  reverse:        {obiettivo:null, why:"hai raggiunto la normocalorica: da qui è una scelta tua se costruire (Massa) o tagliare ancora (Cut)"},
+  mantenimento:   {obiettivo:null, why:"sei a normocalorica: punto di decisione, scegli la direzione in base a cosa vuoi fare ora (Massa o Cut)"}
+};
+function mesocicloFinePrevista(){
+  var inizio = state.mesociclo.dataInizio || todayISO();
+  var durata = state.mesociclo.durataSettimane || MESOCICLO_DURATA_DEFAULT[state.mesociclo.obiettivo] || 8;
+  return addWeeksToDate(inizio, durata);
+}
+function mesocicloEnded(){
+  return todayISO() >= mesocicloFinePrevista();
+}
+// Banner mostrato in cima a "Oggi" quando il mesociclo corrente ha superato la sua
+// durata — non sposta nulla in automatico (le kcal restano quelle scelte finché Marco
+// non conferma), è solo un promemoria pratico per non far scadere la fase in silenzio.
+function nextPhaseSuggestionHTML(){
+  if(!mesocicloEnded()) return "";
+  var ob = state.mesociclo.obiettivo;
+  var sug = NEXT_PHASE_SUGGESTION[ob];
+  if(!sug) return "";
+  var html = '<div class="card" style="border:1px solid #f2c14e;">';
+  html += '<h3 style="margin:0;">📅 Mesociclo terminato</h3>';
+  html += '<div class="small" style="margin-top:6px;">Il mesociclo "'+(MESOCICLO_OBJ_LABELS[ob]||ob)+'" doveva finire il '+fmtDateIt(mesocicloFinePrevista())+'. ';
+  if(sug.obiettivo){
+    html += 'Prossimo passo tipico: <strong>'+MESOCICLO_OBJ_LABELS[sug.obiettivo]+'</strong> — '+sug.why+'.</div>';
+    html += '<div class="btn-row" style="margin-top:10px;flex-wrap:wrap;">';
+    html += '<button class="btn primary small" style="width:auto;" data-act="set-obiettivo" data-obiettivo="'+sug.obiettivo+'">Passa a '+MESOCICLO_OBJ_LABELS[sug.obiettivo]+'</button>';
+    html += '<button class="btn ghost small" style="width:auto;" data-act="restart-mesociclo">Continua '+(MESOCICLO_OBJ_LABELS[ob]||ob)+'</button>';
+    html += '</div>';
+  } else {
+    html += 'Sei a normocalorica: '+sug.why+'.</div>';
+    html += '<div class="btn-row" style="margin-top:10px;flex-wrap:wrap;">';
+    html += '<button class="btn primary small" style="width:auto;" data-act="set-obiettivo" data-obiettivo="massa">Vai a Massa</button>';
+    html += '<button class="btn primary small" style="width:auto;" data-act="set-obiettivo" data-obiettivo="cut">Vai a Cut</button>';
+    html += '<button class="btn ghost small" style="width:auto;" data-act="restart-mesociclo">Continua '+(MESOCICLO_OBJ_LABELS[ob]||ob)+'</button>';
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
 
 // Uscite in bici: kcal/ora calibrate su uscite reali di Marco (dati Garmin, "calorie
 // attive" — già al netto del metabolismo basale, che è coperto dal target riposo/
@@ -1010,11 +1232,9 @@ var state = {
   bodyConfig: loadJSON(LS.bodyConfig, {altezza: 168, eta: 38}),
   weekMenu: loadJSON(LS.weekMenu, null) || defaultWeekMenu(),
   cookDays: loadJSON(LS.cookDays, null) || ["dom","mer"],
-  uovoPesoMedio: loadJSON(LS.uovoPesoMedio, 58),
-  mesociclo: loadJSON(LS.mesociclo, null) || {obiettivo: "ricomposizione"},
+  mesociclo: loadJSON(LS.mesociclo, null) || {obiettivo: "ricomposizione", dataInizio: todayISO(), durataSettimane: MESOCICLO_DURATA_DEFAULT.ricomposizione},
   partner: loadJSON(LS.partner, null),
-  shoppingChecked: loadJSON(LS.shoppingChecked, {}),
-  albumeCartonG: loadJSON(LS.albumeCartonG, 500)
+  shoppingChecked: loadJSON(LS.shoppingChecked, {})
 };
 // Il vecchissimo "check alimentare" (sì/no per kcal/prot/carb/grassi, prima ancora del
 // diario) non aveva il campo "text": quelle voci non sono più leggibili, vengono scartate
@@ -1203,11 +1423,9 @@ function persistAll(){
   saveJSON(LS.bodyConfig, state.bodyConfig);
   saveJSON(LS.weekMenu, state.weekMenu);
   saveJSON(LS.cookDays, state.cookDays);
-  saveJSON(LS.uovoPesoMedio, state.uovoPesoMedio);
   saveJSON(LS.mesociclo, state.mesociclo);
   saveJSON(LS.partner, state.partner);
   saveJSON(LS.shoppingChecked, state.shoppingChecked);
-  saveJSON(LS.albumeCartonG, state.albumeCartonG);
 }
 
 // Salva la seduta in corso (logSession) come bozza a parte, così se l'app si chiude
@@ -1394,6 +1612,12 @@ function isoFromDate(d){
 function fmtDateIt(iso){
   var parts = iso.split("-");
   return parts[2]+"/"+parts[1]+"/"+parts[0];
+}
+function addWeeksToDate(iso, weeks){
+  var parts = iso.split("-").map(Number);
+  var d = new Date(parts[0], parts[1]-1, parts[2]);
+  d.setDate(d.getDate() + Math.round((weeks||0) * 7));
+  return isoFromDate(d);
 }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 
@@ -1810,6 +2034,7 @@ function renderOggi(){
   var bwAvg = sevenDayAvg();
 
   var html = "";
+  html += nextPhaseSuggestionHTML();
   html += '<div class="card">';
   html += '<div class="muted small">Prossima seduta suggerita</div>';
   html += '<h2 style="font-size:22px;margin-top:2px;">Scheda '+nextId+' — '+nextScheda.name+'</h2>';
@@ -1982,11 +2207,9 @@ function toJSON(){
     bodyConfig: state.bodyConfig,
     weekMenu: state.weekMenu,
     cookDays: state.cookDays,
-    uovoPesoMedio: state.uovoPesoMedio,
     mesociclo: state.mesociclo,
     partner: state.partner,
-    shoppingChecked: state.shoppingChecked,
-    albumeCartonG: state.albumeCartonG
+    shoppingChecked: state.shoppingChecked
   }, null, 2);
 }
 
@@ -2451,6 +2674,21 @@ function renderMealPrep(){
   if(!state.cookDays.length){
     html += '<div class="card"><p class="small muted">Nessun giorno di cucina scelto: seleziona almeno un giorno qui sopra.</p></div>';
   } else {
+    (function(){
+      var summary = weekPrepSummary(cookPlan);
+      html += '<div class="card"><h3 style="margin:0;">📋 Riepilogo di questa settimana</h3>';
+      if(!summary.matched.length){
+        html += '<p class="small muted" style="margin-top:6px;">Niente da preparare in anticipo con il piano pasti attuale — solo pollo (tecnica SPAC) e riso basmati hanno una preparazione in catalogo, e questa settimana non sono nel piano pasti scelto. Vedi sotto per gli altri ingredienti (non serve prepararli).</p>';
+      } else {
+        summary.matched.forEach(function(item){
+          html += '<div class="small" style="margin-top:4px;">'+(item.kind==="congelare"?"❄️":"🔪")+' <strong>'+item.name+'</strong> — '+fmtNum(item.qty)+' '+item.unit+' totali, da '+item.kind+'</div>';
+        });
+      }
+      if(summary.unmatched.length){
+        html += '<p class="small muted" style="margin-top:8px;">Altri ingredienti del piano pasti di questa settimana, senza preparazione in anticipo (si mangiano/cucinano al momento, niente da fare prima): '+summary.unmatched.join(', ')+'.</p>';
+      }
+      html += '</div>';
+    })();
     if(cookPlan.freezerPrep.length){
       html += '<div class="card"><h3 style="margin:0;">❄️ Da congelare (una volta per tutta la settimana)</h3>';
       html += '<p class="small muted" style="margin-top:4px;">Condisci e congela in uno qualsiasi dei giorni di cucina: il vincolo è il freezer, non il calendario. Si cuoce fresco dal surgelato giorno per giorno (vedi "Giorno per giorno" più sotto).</p>';
@@ -2574,13 +2812,54 @@ function renderImpostazioni(){
   })();
 
   html += '<div class="card"><h2>Mesociclo</h2>';
-  html += '<p class="small muted">Primo pezzo dell\'architettura "mesociclo" (vedi roadmap.md, progettata il 18/09 scorso e finora solo sulla carta) — qui imposti l\'obiettivo attuale e i dati per calcolare i target di entrambi. Nota: scegliere l\'obiettivo qui sotto non cambia ancora i target fissi che usi ogni giorno in Alimentazione, è preparatorio — stesso approccio già usato sopra con "Target stimati": prima si verifica che i numeri tornino, poi eventualmente si passa a target "vivi".</p>';
+  html += '<p class="small muted">Qui imposti l\'obiettivo attuale, da quando, e per quanto — indipendente dal ciclo di allenamento A/B/C (quello resta sui suoi 5 settimane di progressione+scarico, non c\'entra con questa durata). <strong>I target kcal/macro di Alimentazione restano quelli fissi</strong> anche cambiando obiettivo qui sotto: quelli sono calcolati e mostrati solo come confronto, non ancora "vivi" nel diario/Oggi — vedi i numeri più sotto.</p>';
   html += '<div class="field"><label>Obiettivo attuale</label><div class="btn-row" style="flex-wrap:wrap;">';
-  [["ricomposizione","Ricomposizione"],["mantenimento","Mantenimento"],["massa","Massa"],["reverse","Reverse-diet"]].forEach(function(o){
+  [["ricomposizione","Ricomposizione"],["cut","Cut"],["mantenimento","Mantenimento"],["massa","Massa"],["reverse","Reverse-diet"]].forEach(function(o){
     var oActive = state.mesociclo.obiettivo === o[0];
     html += '<button class="btn small'+(oActive?' primary':'')+'" style="width:auto;" data-act="set-obiettivo" data-obiettivo="'+o[0]+'">'+o[1]+'</button>';
   });
   html += '</div></div>';
+  if(state.mesociclo.obiettivo === "reverse"){
+    html += '<div class="field"><label>Step reverse attuale</label><div class="btn-row">';
+    [1,2,3].forEach(function(s){
+      var sActive = (state.mesociclo.reverseStep || 1) === s;
+      html += '<button class="btn small'+(sActive?' primary':'')+'" style="width:auto;" data-act="set-reverse-step" data-step="'+s+'">Step '+s+'</button>';
+    });
+    html += '</div><p class="small muted" style="margin-top:4px;">Step 1 = incremento più piccolo, Step 3 = il più alto (subito prima di passare a Massa). Ognuno dura qualche settimana (dieta.md: "2-3 step di qualche settimana ciascuno") — avanza allo step successivo quando peso/composizione lo confermano, non a data fissa.</p>';
+  }
+  (function(){
+    var mt = computeMesocicloTargets();
+    var isLive = state.mesociclo.obiettivo === "ricomposizione";
+    html += '<div class="field" style="margin-top:4px;"><label>Target calcolati per "'+({ricomposizione:"Ricomposizione",cut:"Cut",mantenimento:"Mantenimento",massa:"Massa",reverse:"Reverse-diet — step "+(state.mesociclo.reverseStep||1)}[state.mesociclo.obiettivo])+'"'+(isLive?" (= il piano fisso attuale)":"")+'</label>';
+    [["riposo","Riposo"],["allenamento","Allenamento"]].forEach(function(k){
+      var t = mt[k[0]];
+      html += '<div class="small" style="margin-top:6px;"><strong>'+t.label+'</strong> — '+t.kcal+' kcal / '+t.prot+'g prot / '+t.carb+'g carb / '+t.grassi+'g grassi</div>';
+    });
+    if(state.mesociclo.obiettivo === "cut"){
+      html += '<p class="small muted" style="margin-top:8px;">Metodo (rifatto secondo Project Invictus, non più dal rapporto con la scheda di Mattia — vedi roadmap.md per il perché del cambio): si parte dal Mantenimento qui sopra (≈ la tua normocalorica), non dalla Ricomposizione fissa che è già un deficit leggero, e si tolgono '+CUT_DEFICIT_KCAL+' kcal/die (fascia 350-500 consigliata da PI per un uomo non già molto magro) — proteine/grassi fissi 150g/65g, carboidrati a riempimento.</p>';
+      html += '<p class="small" style="margin-top:6px; color:#c0392b;">⚠ Prima di iniziare davvero un Cut: verifica per 1-2 settimane che il tuo peso (media 7gg) resti stabile mangiando al livello "Mantenimento" — solo allora quel numero è una normocalorica confermata su cui basare il deficit, non solo calcolata a tavolino. "Mini cut" da 2-6 settimane, poi si torna a Mantenimento prima del prossimo (o si passa a Reverse/Massa).</p>';
+    } else if(!isLive){
+      html += '<p class="small muted" style="margin-top:8px;">Derivati così: proteine e grassi restano ai grammi fissi di Ricomposizione (150g/65g — nei piani reali analizzati variano di pochi grammi tra fasi), le kcal salgono applicando ai tuoi target fissi lo stesso pattern percentuale di crescita osservato nei 4 piani reali di reverse-diet/bulk di Mattia Mauro (stesso nutrizionista, Dr. Angotti — PDF già caricati e riletti: +6,5%/+3,3%/+6,3% riposo, +2,0%/+6,6%/+9,6% allenamento da uno step al successivo), non i suoi numeri assoluti; i carboidrati sono il resto a riempimento. Mantenimento = step 1 (il più prudente); Massa = tutti e 3 gli step applicati in sequenza.</p>';
+    }
+    html += '</div>';
+  })();
+  (function(){
+    var durata = state.mesociclo.durataSettimane || MESOCICLO_DURATA_DEFAULT[state.mesociclo.obiettivo] || 8;
+    var inizio = state.mesociclo.dataInizio || todayISO();
+    var fine = addWeeksToDate(inizio, durata);
+    var range = MESOCICLO_DURATA_RANGE[state.mesociclo.obiettivo];
+    var minAttr = range ? range.min : 1;
+    var maxAttr = range ? (' max="'+range.max+'"') : '';
+    html += '<div class="field"><div class="grid2">';
+    html += '<div><span class="small muted">Iniziato il</span><input type="date" value="'+inizio+'" data-act="set-mesociclo" data-field="dataInizio"></div>';
+    html += '<div><span class="small muted">Durata (settimane)</span><input type="number" step="1" min="'+minAttr+'"'+maxAttr+' value="'+durata+'" data-act="set-mesociclo" data-field="durataSettimane"></div>';
+    html += '</div>';
+    html += '<p class="small muted" style="margin-top:6px;">Fine prevista: <strong>'+fmtDateIt(fine)+'</strong> — la durata di default (Ricomposizione 12, Mantenimento 8, Massa 8, Reverse 6 settimane, precompilata al cambio obiettivo) è un mio punto di partenza pratico per la pianificazione, non un numero da studio: modificala come preferisci, e a fine periodo il promemoria serve solo a ricordarti di rivalutare, non scatta nulla in automatico.</p>';
+    if(range){
+      html += '<p class="small muted" style="margin-top:4px;">Per "'+(MESOCICLO_OBJ_LABELS[state.mesociclo.obiettivo]||state.mesociclo.obiettivo)+'" il campo è limitato a '+range.min+'-'+range.max+' settimane: fascia indicata da Project Invictus per questa fase (non un limite arbitrario), i valori fuori fascia vengono riportati al limite più vicino.</p>';
+    }
+    html += '</div>';
+  })();
 
   html += '<div class="field"><label>Compagna</label>';
   if(!state.partner){
@@ -2880,11 +3159,9 @@ document.addEventListener("click", function(e){
       localStorage.removeItem(LS.bodyConfig);
       localStorage.removeItem(LS.weekMenu);
       localStorage.removeItem(LS.cookDays);
-      localStorage.removeItem(LS.uovoPesoMedio);
       localStorage.removeItem(LS.mesociclo);
       localStorage.removeItem(LS.partner);
       localStorage.removeItem(LS.shoppingChecked);
-      localStorage.removeItem(LS.albumeCartonG);
       state.exercises = JSON.parse(JSON.stringify(DEFAULT_EXERCISES));
       state.workouts = [];
       state.bodyweight = [];
@@ -2896,11 +3173,9 @@ document.addEventListener("click", function(e){
       state.bodyConfig = {altezza: 168, eta: 38};
       state.weekMenu = defaultWeekMenu();
       state.cookDays = ["dom","mer"];
-      state.uovoPesoMedio = 58;
-      state.mesociclo = {obiettivo: "ricomposizione"};
+      state.mesociclo = {obiettivo: "ricomposizione", dataInizio: todayISO(), durataSettimane: MESOCICLO_DURATA_DEFAULT.ricomposizione};
       state.partner = null;
       state.shoppingChecked = {};
-      state.albumeCartonG = 500;
       nutriDraft = null;
       logSession = null;
       toast("Dati cancellati");
@@ -2939,7 +3214,23 @@ document.addEventListener("click", function(e){
     openConsulta[ckey] = !openConsulta[ckey];
     render();
   } else if(act === "set-obiettivo"){
-    state.mesociclo.obiettivo = t.getAttribute("data-obiettivo");
+    var newObiettivo = t.getAttribute("data-obiettivo");
+    state.mesociclo.obiettivo = newObiettivo;
+    // Nuovo obiettivo = nuova fase: si riparte da oggi con la durata di default
+    // per quell'obiettivo (entrambe restano comunque editabili subito sotto).
+    state.mesociclo.dataInizio = todayISO();
+    state.mesociclo.durataSettimane = MESOCICLO_DURATA_DEFAULT[newObiettivo] || 8;
+    if(newObiettivo === "reverse") state.mesociclo.reverseStep = 1;
+    persistAll();
+    render();
+  } else if(act === "set-reverse-step"){
+    state.mesociclo.reverseStep = parseInt(t.getAttribute("data-step"), 10) || 1;
+    persistAll();
+    render();
+  } else if(act === "restart-mesociclo"){
+    // "Continua uguale" dal suggerimento di fine mesociclo: stesso obiettivo, si
+    // riparte solo la data (la durata resta quella che aveva, anche se modificata a mano).
+    state.mesociclo.dataInizio = todayISO();
     persistAll();
     render();
   } else if(act === "partner-add"){
@@ -3033,20 +3324,6 @@ document.addEventListener("change", function(e){
       persistAll();
       toast("Recupero aggiornato");
     }
-  } else if(t.getAttribute && t.getAttribute("data-act") === "set-egg-weight"){
-    var ewVal = parseFloat(String(t.value).replace(",", "."));
-    if(!isNaN(ewVal) && ewVal > 0){
-      state.uovoPesoMedio = Math.round(ewVal);
-      persistAll();
-      render();
-    }
-  } else if(t.getAttribute && t.getAttribute("data-act") === "set-albume-carton"){
-    var acVal = parseFloat(String(t.value).replace(",", "."));
-    if(!isNaN(acVal) && acVal > 0){
-      state.albumeCartonG = Math.round(acVal);
-      persistAll();
-      render();
-    }
   } else if(t.getAttribute && t.getAttribute("data-act") === "set-partner"){
     if(state.partner){
       var pField = t.getAttribute("data-field");
@@ -3059,6 +3336,23 @@ document.addEventListener("change", function(e){
       persistAll();
       render();
     }
+  } else if(t.getAttribute && t.getAttribute("data-act") === "set-mesociclo"){
+    var mField = t.getAttribute("data-field");
+    if(mField === "dataInizio"){
+      if(t.value) state.mesociclo.dataInizio = t.value;
+    } else if(mField === "durataSettimane"){
+      var durVal = parseInt(t.value, 10);
+      if(!isNaN(durVal) && durVal > 0){
+        var durRange = MESOCICLO_DURATA_RANGE[state.mesociclo.obiettivo];
+        if(durRange){
+          if(durVal < durRange.min) durVal = durRange.min;
+          if(durVal > durRange.max) durVal = durRange.max;
+        }
+        state.mesociclo.durataSettimane = durVal;
+      }
+    }
+    persistAll();
+    render();
   } else if(t.getAttribute && t.getAttribute("data-act") === "set-body"){
     var bField = t.getAttribute("data-field");
     var bVal = parseFloat(String(t.value).replace(",", "."));
@@ -3087,11 +3381,9 @@ document.addEventListener("change", function(e){
         if(data.bodyConfig) state.bodyConfig = data.bodyConfig;
         if(data.weekMenu) state.weekMenu = data.weekMenu;
         if(data.cookDays) state.cookDays = data.cookDays;
-        if(data.uovoPesoMedio) state.uovoPesoMedio = data.uovoPesoMedio;
         if(data.mesociclo) state.mesociclo = data.mesociclo;
         if(data.partner) state.partner = data.partner;
         if(data.shoppingChecked) state.shoppingChecked = data.shoppingChecked;
-        if(data.albumeCartonG) state.albumeCartonG = data.albumeCartonG;
         persistAll();
         toast("Backup importato ✓");
         render();
