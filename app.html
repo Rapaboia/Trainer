@@ -1652,14 +1652,34 @@ function kindLabel(kind){
 function setsText(sets){
   return sets.map(function(s){ return fmtNum(s.peso)+"x"+s.reps; }).join(", ");
 }
-function exerciseLine(exId, sets){
+// "week" è la settimana del ciclo in cui è stata fatta QUELLA seduta, salvata dentro
+// la seduta stessa (exercises[].cycleWeek, dal 2026-10-13). Prima si usava il contatore
+// attuale per tutte le sedute passate, che dava etichette sbagliate nello storico.
+// Le sedute salvate prima di questa modifica non hanno il campo: per loro la settimana
+// non viene ricostruita né indovinata, si dice solo che non è registrata.
+function exerciseLine(exId, sets, week){
   var cfg = state.exercises[exId];
   if(cfg.kind === "principal"){
-    var scheme = weekSchemeFor(exId);
     var m = state.maxes[exId];
-    return cfg.name + " (principale, settimana " + currentCycleWeek(exId) + "/5 del ciclo, target " + scheme.sets + "x" + scheme.reps + " @" + Math.round(scheme.pct*100) + "%" + (m ? (" di 1RM stimato "+fmtNum(m.value)+"kg") : "") + ", incremento " + fmtNum(cfg.inc) + " " + cfg.unit + "): " + setsText(sets);
+    var head = cfg.name + " (principale, ";
+    var tail = "incremento " + fmtNum(cfg.inc) + " " + cfg.unit + "): " + setsText(sets);
+    var scheme = (week >= 1 && week <= WEEK_SCHEME.length) ? WEEK_SCHEME[week - 1] : null;
+    if(!scheme) return head + "settimana del ciclo non registrata per questa seduta, " + tail;
+    return head + "settimana " + week + "/5 del ciclo in questa seduta, target " + scheme.sets + "x" + scheme.reps + " @" + Math.round(scheme.pct*100) + "%" + (m ? (" di 1RM stimato attuale "+fmtNum(m.value)+"kg") : "") + ", " + tail;
   }
   return cfg.name + " (" + kindLabel(cfg.kind) + ", target " + cfg.lo + (cfg.lo!==cfg.hi ? "-"+cfg.hi : "") + " rip, incremento " + fmtNum(cfg.inc) + " " + cfg.unit + "): " + setsText(sets);
+}
+// Dove si trova adesso ogni principale nel ciclo, cioè la settimana che toccherà alla
+// sua PROSSIMA seduta (contatore state.cycleWeek, già avanzato dopo l'ultimo salvataggio).
+function cycleStatusText(){
+  var parts = Object.keys(state.exercises).filter(function(id){
+    return state.exercises[id].kind === "principal";
+  }).map(function(id){
+    var w = currentCycleWeek(id);
+    var s = WEEK_SCHEME[w - 1];
+    return state.exercises[id].name + " settimana " + w + "/5 (" + (s.deload ? "scarico, " : "") + s.sets + "x" + s.reps + " @" + Math.round(s.pct*100) + "%)";
+  });
+  return "Prossima seduta di ciascun esercizio principale: " + parts.join("; ") + ".";
 }
 function trainingRulesText(){
   return "Regole di progressione (Project Invictus): esercizi principali (panca piana, squat, dips zavorrate) — Progressione Lineare di Carico, ciclo di 5 settimane, serie fisse (4x, 2x in scarico), solo le rip scendono mentre il carico sale in base al %1RM stimato (sett.1 4x8@73%, sett.2 4x6@78%, sett.3 4x5@82%, sett.4 4x3@88%, sett.5 scarico 2x3@85%); il carico in kg è ricavato dal massimale stimato con Epley dallo storico (serie più pesante mai registrata, valida perché si allena a cedimento vero). Esercizi accessori (range di ripetizioni), RPE 8,5-10 (0-1 rip di riserva) — si sale prima con le ripetizioni fino al limite alto del range, si aggiunge carico solo quando TUTTE le serie chiudono al limite alto, poi si riparte dal limite basso. Leg raise (isolamento/finisher) può arrivare a RPE 10/cedimento tecnico, ginocchia a 90° per limiti di flessibilità, progressione prima con le ripetizioni poi con zavorra ai piedi. Deload ogni ~5 settimane. Obiettivo attuale: ricomposizione corporea con deficit leggero; da novembre 2026 fase di massa.";
@@ -1672,11 +1692,12 @@ function buildSessionAnalysisText(){
   var lines = [];
   lines.push("Analisi ultima seduta — " + fmtDateIt(w.date) + " — Scheda " + w.scheda + " (" + scheda.name + ")" + (w.variant ? " [variante]" : ""));
   lines.push(trainingRulesText());
+  lines.push(cycleStatusText());
   lines.push("");
   lines.push("Per ogni esercizio sotto c'è, se esiste, la seduta precedente dello stesso esercizio per il confronto.");
   lines.push("");
   w.exercises.forEach(function(e){
-    lines.push("- " + exerciseLine(e.id, e.sets));
+    lines.push("- " + exerciseLine(e.id, e.sets, e.cycleWeek));
     var prev = lastPerformance(e.id, w.id);
     lines.push("  precedente" + (prev ? (" (" + fmtDateIt(prev.workout.date) + "): " + setsText(prev.ex.sets)) : ": nessuno storico"));
   });
@@ -1693,6 +1714,7 @@ function buildWeekAnalysisText(days){
   var lines = [];
   lines.push("Analisi settimana — ultimi " + days + " giorni (" + list.length + " sedute registrate)");
   lines.push(trainingRulesText());
+  lines.push(cycleStatusText());
   var avg7 = sevenDayAvg();
   if(avg7) lines.push("Peso corporeo (media 7gg): " + fmtNum(avg7) + " kg.");
   lines.push("");
@@ -1702,7 +1724,7 @@ function buildWeekAnalysisText(days){
     list.forEach(function(w){
       var scheda = SCHEDE[w.scheda];
       lines.push(fmtDateIt(w.date) + " — Scheda " + w.scheda + " (" + scheda.name + ")" + (w.variant ? " [variante]" : ""));
-      w.exercises.forEach(function(e){ lines.push("  - " + exerciseLine(e.id, e.sets)); });
+      w.exercises.forEach(function(e){ lines.push("  - " + exerciseLine(e.id, e.sets, e.cycleWeek)); });
       lines.push("");
     });
   }
@@ -2035,6 +2057,13 @@ function saveLog(){
   if(logSession.editId){
     var idx = state.workouts.findIndex(function(w){ return w.id === logSession.editId; });
     if(idx > -1){
+      // In modifica la settimana del ciclo NON si ricalcola (il contatore non avanza):
+      // si conserva quella salvata in origine, se c'era.
+      var orig = state.workouts[idx];
+      exercisesOut.forEach(function(exo){
+        var oe = (orig.exercises || []).find(function(x){ return x.id === exo.id; });
+        if(oe && oe.cycleWeek) exo.cycleWeek = oe.cycleWeek;
+      });
       var updated = {
         id: logSession.editId,
         date: logSession.date || todayISO(),
@@ -2068,6 +2097,7 @@ function saveLog(){
     var cfgEx = state.exercises[exo.id];
     if(cfgEx && cfgEx.kind === "principal"){
       var w = currentCycleWeek(exo.id);
+      exo.cycleWeek = w; // settimana in cui è stata fatta questa seduta (campo facoltativo, additivo)
       state.cycleWeek[exo.id] = (w >= 5) ? 1 : (w + 1);
     }
   });
