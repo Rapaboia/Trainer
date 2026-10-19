@@ -9,7 +9,7 @@
 // questa cache: cambiare o cancellare la cache non li tocca.
 //
 // Ad ogni modifica di app.html o di questo file, alzare CACHE_NAME.
-const CACHE_NAME = "trainer-app-v28";
+const CACHE_NAME = "trainer-app-v29";
 const PRECACHE = ["./app.html"];
 const NETWORK_TIMEOUT_MS = 3000;
 
