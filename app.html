@@ -388,36 +388,6 @@ var SCHEDE = {
 
 var ROTATION_SEQUENCE = ["A","B","C"];
 
-var MEAL_TYPES = ["Colazione","Metà mattina","Pranzo","Merenda","Cena","Spuntino"];
-// Riconosce il tipo pasto scritto come prima riga o come prefisso ("Colazione: ...", "Colazione\n...").
-// Le forme più specifiche vanno prima delle generiche (es. "spuntino pomeridiano" prima di "spuntino").
-var MEAL_TYPE_RE = /^\s*(prima colazione|colazione|met[aà]\s+mattina|spuntino mattutino|spuntino pomeridiano|spuntino pomeriggio|merenda|pranzo|cena|spuntino)\b[:\-,]?\s*/i;
-var MEAL_TYPE_LABELS = {
-  "prima colazione":"Colazione", "colazione":"Colazione",
-  "meta mattina":"Metà mattina", "metà mattina":"Metà mattina", "spuntino mattutino":"Metà mattina",
-  "spuntino pomeridiano":"Merenda", "spuntino pomeriggio":"Merenda", "merenda":"Merenda",
-  "pranzo":"Pranzo", "cena":"Cena", "spuntino":"Spuntino"
-};
-function extractMealType(text){
-  var raw = String(text);
-  var m = raw.match(MEAL_TYPE_RE);
-  if(m){
-    var key = m[1].toLowerCase().replace(/\s+/g," ").trim();
-    var label = MEAL_TYPE_LABELS[key];
-    if(label) return {mealType: label, text: raw.slice(m[0].length)};
-  }
-  return {mealType: null, text: raw};
-}
-function guessMealTypeByHour(){
-  var h = new Date().getHours();
-  if(h < 10) return "Colazione";
-  if(h < 12) return "Metà mattina";
-  if(h < 15) return "Pranzo";
-  if(h < 18) return "Merenda";
-  if(h < 22) return "Cena";
-  return "Spuntino";
-}
-
 /* ============================================================
    STORAGE
    ============================================================ */
@@ -438,34 +408,91 @@ var LS = {
   cookDays: "pp_cook_days_v1",
   mesociclo: "pp_mesociclo_v1",
   partner: "pp_partner_v1",
-  shoppingChecked: "pp_shopping_checked_v1"
+  shoppingChecked: "pp_shopping_checked_v1",
+  pasti: "pp_pasti_v1"
 };
 
 /* ============================================================
-   FASI ALIMENTARI (Mesociclo) E TARGET
-   La fase attiva (state.mesociclo.obiettivo) decide i target del giorno. Ogni punto
-   dell'app (diario, Oggi, Consulta, testo per l'IA) li legge da computeMesocicloTargets().
+   FASI ALIMENTARI E TARGET
+   La fase attiva (state.mesociclo) decide i target del giorno. Ogni punto dell'app
+   (pasti, Consulta, testo per l'IA) li legge da computeMesocicloTargets().
+   Le fasi si cambiano solo dal wizard "Fai il punto" (vedi più sotto).
    ============================================================ */
-// Ricomposizione (fino al 2026-10-20): target fissi di dieta.md.
+// Ricomposizione (fino al 2026-10-20): target fissi di dieta.md. Solo per la fase salvata, non più sceglibile.
 var TARGETS = {
   allenamento: {kcal: 2250, prot: 150, carb: 250, grassi: 65, label:"Giorno di allenamento"},
   riposo:      {kcal: 1970, prot: 150, carb: 180, grassi: 65, label:"Giorno di riposo"}
 };
-// Dimagrimento (dal 2026-10-20): totali del piano in PDF "Piano nutrizionale per Marco" =
-// piano BASE del nutrizionista × 0,8977, rapporto tra i metabolismi basali (Mifflin-St Jeor)
-// di Marco e della persona per cui il piano era scritto. SOURCE_INFERRED, vedi roadmap.md.
-// Le kcal includono le fibre (~27 g/die): 4P+4C+9G dà circa 50 kcal in meno.
+// Dimagrimento dal 2026-10-20: totali del piano in PDF (piano di base × 0,8977, vedi roadmap.md).
 var DIMAGRIMENTO_TARGETS = {
   allenamento: {kcal: 2138, prot: 135, carb: 265, grassi: 54, label:"Giorno di allenamento"},
   riposo:      {kcal: 1802, prot: 134, carb: 180, grassi: 55, label:"Giorno di riposo"}
 };
-var PHASE_TARGETS = {dimagrimento: DIMAGRIMENTO_TARGETS, ricomposizione: TARGETS};
-var MESOCICLO_OBJ_LABELS = {dimagrimento:"Dimagrimento (piano PDF)", ricomposizione:"Ricomposizione"};
-// Durata di default in settimane: scelta pratica di Marco ("rivalutare ogni 4-6 settimane"), editabile.
-var MESOCICLO_DURATA_DEFAULT = {dimagrimento: 4, ricomposizione: 4};
+// Totali giornalieri dei piani del nutrizionista (tabelle "TOT." dei PDF): danno la FORMA di ogni fase
+// (rapporto tra giorno di allenamento e di riposo, proporzione dei macro). Il LIVELLO delle calorie
+// viene dal mantenimento misurato di Marco (wizard). carb = carboidrati disponibili, fib = fibre (in kcal).
+var PLANS = {
+  base:     {riposo:{kcal:2007, carb:200.09, fib:30.11, prot:149.58, grassi:60.89}, allenamento:{kcal:2382, carb:295.41, fib:29.65, prot:150.52, grassi:59.93}},
+  reverse1: {riposo:{kcal:2011, carb:224.39, fib:23.93, prot:138.06, grassi:57.01}, allenamento:{kcal:2312, carb:288.44, fib:30.21, prot:144.65, grassi:57.72}},
+  reverse2: {riposo:{kcal:2142, carb:250.11, fib:25.17, prot:141.85, grassi:58.23}, allenamento:{kcal:2358, carb:296.89, fib:32.23, prot:147.20, grassi:57.43}},
+  reverse3: {riposo:{kcal:2213, carb:265.51, fib:25.47, prot:143.47, grassi:58.45}, allenamento:{kcal:2513, carb:330.14, fib:33.67, prot:151.25, grassi:57.80}},
+  bulk:     {riposo:{kcal:2353, carb:291.55, fib:30.38, prot:147.23, grassi:59.69}, allenamento:{kcal:2754, carb:380.71, fib:37.03, prot:156.38, grassi:59.02}},
+  cut:      {riposo:{kcal:2174, carb:202.75, fib:32.66, prot:156.11, grassi:74.86}, allenamento:{kcal:2278, carb:277.96, fib:32.62, prot:144.94, grassi:57.90}}
+};
+var PLAN_LABELS = {base:"piano di base", reverse1:"piano reverse 1", reverse2:"piano reverse 2", reverse3:"piano reverse 3", bulk:"piano di massa", cut:"piano cut dopo la massa"};
+// tipo: deficit (mantenimento − ritmo), mantenimento, reverse (+100 kcal a gradino), surplus (mantenimento + ritmo).
+// durata: settimane di default (Invictus: deficit 4-8 sett. poi 1-2 al mantenimento; reverse +50-100 kcal ogni 1-2 sett.;
+// massa a blocchi di 4-10 sett.). Valori scelti nel mezzo delle fasce, editabili.
+var PHASES = {
+  dimagrimento: {label:"Dimagrimento (da sovrappeso)", tipo:"deficit", piano:"base", durata:4},
+  pausa:        {label:"Pausa al mantenimento", tipo:"mantenimento", piano:null, durata:2},
+  reverse:      {label:"Reverse", tipo:"reverse", piano:null, durata:2},
+  massa:        {label:"Massa", tipo:"surplus", piano:"bulk", durata:8},
+  cut:          {label:"Cut (dopo la massa)", tipo:"deficit", piano:"cut", durata:4}
+};
+var MESOCICLO_OBJ_LABELS = {dimagrimento:"Dimagrimento (da sovrappeso)", pausa:"Pausa al mantenimento", reverse:"Reverse", massa:"Massa", cut:"Cut (dopo la massa)", ricomposizione:"Ricomposizione"};
+var MESOCICLO_DURATA_DEFAULT = {dimagrimento: 4, pausa: 2, reverse: 2, massa: 8, cut: 4, ricomposizione: 4};
+// Ritmi (Piramide della nutrizione, Livello 1): deficit 0,5-1% del peso a settimana; massa per un intermedio
+// 0,5-1,5% al mese. 7.700 kcal ≈ 1 kg (regola "3.500 kcal ≈ 1 lb").
+var RITMI_DEFICIT = [0.005, 0.0075, 0.01];       // frazione del peso a settimana (default 0,5%: scelta pratica)
+var RITMI_SURPLUS = [0.005, 0.01, 0.015];        // frazione del peso al mese (default 1%)
+var KCAL_PER_KG = 7700;
+var REVERSE_STEP_KCAL = 100;
 
+function phaseLabel(m){
+  m = m || state.mesociclo;
+  var l = MESOCICLO_OBJ_LABELS[m.obiettivo] || m.obiettivo;
+  if(m.obiettivo === "reverse" && m.reverseStep) l += " (gradino " + m.reverseStep + ")";
+  return l;
+}
+function seduteSettimana(){
+  var n = state.bodyConfig.sedute;
+  return (n >= 0 && n <= 7) ? n : 2;
+}
 function computeMesocicloTargets(){
-  return PHASE_TARGETS[state.mesociclo.obiettivo] || DIMAGRIMENTO_TARGETS;
+  var m = state.mesociclo;
+  if(m.targets && m.targets.riposo && m.targets.allenamento) return m.targets;
+  if(m.obiettivo === "ricomposizione") return TARGETS;
+  return DIMAGRIMENTO_TARGETS;
+}
+// Media giornaliera della settimana con n sedute.
+function weeklyAvgKcal(targets, n){
+  return ((7 - n) * targets.riposo.kcal + n * targets.allenamento.kcal) / 7;
+}
+// Target di una fase dal livello medio settimanale T e dalla forma del piano: stesso rapporto
+// allenamento/riposo e stessa proporzione dei macro del piano (si scalano tutti gli alimenti).
+function buildTargets(planKey, T, n){
+  var p = PLANS[planKey], r = p.allenamento.kcal / p.riposo.kcal;
+  var rip = 7 * T / (7 - n + n * r);
+  function scale(d, kcal, label){
+    var f = kcal / d.kcal;
+    return {kcal: Math.round(kcal), prot: Math.round(d.prot * f), carb: Math.round(d.carb * f), grassi: Math.round(d.grassi * f), label: label};
+  }
+  return {
+    riposo: scale(p.riposo, rip, "Giorno di riposo"),
+    allenamento: scale(p.allenamento, rip * r, "Giorno di allenamento"),
+    fattore: rip / p.riposo.kcal
+  };
 }
 function mesocicloFinePrevista(){
   var inizio = state.mesociclo.dataInizio || todayISO();
@@ -475,17 +502,14 @@ function mesocicloFinePrevista(){
 function mesocicloEnded(){
   return todayISO() >= mesocicloFinePrevista();
 }
-// Promemoria in cima ad Allenamento quando la fase ha superato la sua durata: non cambia
-// nulla da solo, Marco decide la fase successiva.
+// Promemoria in cima ad Allenamento quando la fase ha superato la sua durata: non cambia nulla da solo.
 function nextPhaseSuggestionHTML(){
   if(!mesocicloEnded()) return "";
-  var label = MESOCICLO_OBJ_LABELS[state.mesociclo.obiettivo] || state.mesociclo.obiettivo;
   var html = '<div class="card" style="border:1px solid #f2c14e;">';
   html += '<h3 style="margin:0;">📅 Fase terminata</h3>';
-  html += '<div class="small" style="margin-top:6px;">La fase "'+label+'" doveva finire il '+fmtDateIt(mesocicloFinePrevista())+'. Confronta la media del peso e la vita con l\'inizio della fase, poi decidi come proseguire.</div>';
-  html += '<div class="btn-row" style="margin-top:10px;flex-wrap:wrap;">';
-  html += '<button class="btn ghost small" style="width:auto;" data-act="restart-mesociclo">Continua '+label+'</button>';
-  html += '</div></div>';
+  html += '<div class="small" style="margin-top:6px;">La fase "'+phaseLabel()+'" doveva finire il '+fmtDateIt(mesocicloFinePrevista())+'. Fai il punto: confronta peso e vita con l\'inizio e decidi come proseguire.</div>';
+  html += '<button class="btn primary small" style="margin-top:10px;" data-act="wiz-open">Fai il punto</button>';
+  html += '</div>';
   return html;
 }
 
@@ -541,6 +565,7 @@ var state = {
   bikeRides: loadJSON(LS.bikeRides, []),
   bodyConfig: loadJSON(LS.bodyConfig, {altezza: 168, eta: 38}),
   mesociclo: loadJSON(LS.mesociclo, null) || {obiettivo: "dimagrimento", dataInizio: todayISO(), durataSettimane: MESOCICLO_DURATA_DEFAULT.dimagrimento, pianoPdfMigrato: true},
+  pasti: loadJSON(LS.pasti, []),
   // Dati di funzioni tolte il 2026-10-20 (vecchio piano pasti, piano di cucina, lista della spesa,
   // stima della compagna): non più usati dall'app, ma conservati così come sono e inclusi in
   // export/import JSON per non perdere nulla e restare compatibili con i backup.
@@ -553,17 +578,23 @@ var LEGACY_KEYS = ["weekMenu", "cookDays", "partner", "shoppingChecked"];
 // Le voci del primissimo "check alimentare" (senza testo) non sono leggibili: scartate all'avvio.
 state.nutrition = state.nutrition.filter(function(n){ return typeof n.text === "string"; });
 
-// Passaggio una tantum alla fase di dimagrimento (2026-10-20): la Ricomposizione salvata diventa
-// Dimagrimento da oggi. Il flag pianoPdfMigrato evita di rifarlo se Marco torna a Ricomposizione a mano.
-// Le fasi tolte (Cut/Mantenimento/Massa/Reverse, mai usate) ricadono anch'esse su Dimagrimento.
-(function migratePianoPdf(){
+// Migrazioni della fase salvata (2026-10-20):
+// - una tantum, la Ricomposizione diventa Dimagrimento da oggi (flag pianoPdfMigrato);
+// - le fasi delle versioni vecchie senza target salvati (Cut/Mantenimento/Massa/Reverse, mai usate) ricadono su Dimagrimento;
+// - il Dimagrimento senza target salvati riceve quelli del piano in PDF, così il wizard ha un punto di partenza.
+(function migrateFase(){
   var m = state.mesociclo, changed = false;
   if(!m.pianoPdfMigrato){
     m.pianoPdfMigrato = true; changed = true;
     if(m.obiettivo === "ricomposizione"){ m.obiettivo = "dimagrimento"; m.dataInizio = todayISO(); m.durataSettimane = MESOCICLO_DURATA_DEFAULT.dimagrimento; }
   }
-  if(!PHASE_TARGETS[m.obiettivo]){ m.obiettivo = "dimagrimento"; m.dataInizio = todayISO(); m.durataSettimane = MESOCICLO_DURATA_DEFAULT.dimagrimento; changed = true; }
-  delete m.reverseStep;
+  if(m.obiettivo !== "ricomposizione" && m.obiettivo !== "dimagrimento" && !m.targets){
+    m.obiettivo = "dimagrimento"; m.dataInizio = todayISO(); m.durataSettimane = MESOCICLO_DURATA_DEFAULT.dimagrimento; delete m.reverseStep; changed = true;
+  }
+  if(m.obiettivo === "dimagrimento" && !m.targets){
+    m.targets = JSON.parse(JSON.stringify(DIMAGRIMENTO_TARGETS)); m.piano = "base"; m.versione = 1; changed = true;
+  }
+  if(!m.storico){ m.storico = []; changed = true; }
   if(changed) saveJSON(LS.mesociclo, m);
 })();
 
@@ -651,6 +682,7 @@ function persistAll(){
   saveJSON(LS.bikeRides, state.bikeRides);
   saveJSON(LS.bodyConfig, state.bodyConfig);
   saveJSON(LS.mesociclo, state.mesociclo);
+  saveJSON(LS.pasti, state.pasti);
 }
 
 // Bozza della seduta in corso, salvata a ogni modifica e ricaricata all'avvio dopo un crash.
@@ -664,73 +696,8 @@ function dayTypeFor(date){
   return hasWorkout ? "allenamento" : "riposo";
 }
 
-/* ============================================================
-   DIARIO ALIMENTARE: testo libero; i macro li calcola l'IA in chat e si reincollano
-   ============================================================ */
-function round1(n){ return Math.round(n*10)/10; }
-
-function mealTypeOrder(mt){
-  var i = MEAL_TYPES.indexOf(mt);
-  return i === -1 ? MEAL_TYPES.length : i;
-}
-
-function nutritionDays(limitDays){
-  var byDate = {};
-  state.nutrition.forEach(function(n){
-    if(!byDate[n.date]) byDate[n.date] = [];
-    byDate[n.date].push(n);
-  });
-  var dates = Object.keys(byDate).sort().reverse();
-  if(limitDays) dates = dates.slice(0, limitDays);
-  return dates.map(function(d){
-    var entries = byDate[d].slice().sort(function(a,b){ return mealTypeOrder(a.mealType) - mealTypeOrder(b.mealType); });
-    return {date: d, entries: entries};
-  });
-}
-
+// Voci del vecchio diario a testo libero (non più mostrato, conservato nell'export): ha i macro?
 function hasMacro(n){ return typeof n.kcal === "number"; }
-
-// Totali del giorno sui soli pasti che hanno già i macro (per sapere quanto resta).
-function nutritionTotalsForDate(date){
-  var entries = state.nutrition.filter(function(n){ return n.date === date; });
-  var t = {kcal:0, prot:0, carb:0, fat:0};
-  var computed = 0;
-  entries.forEach(function(n){
-    if(hasMacro(n)){ t.kcal+=n.kcal; t.prot+=n.prot; t.carb+=n.carb; t.fat+=n.fat; computed++; }
-  });
-  return {entries: entries, totals: t, computed: computed};
-}
-
-// Testo da incollare in chat con l'IA: target, peso medio, pasti con il loro id e il formato di risposta
-// (id|kcal|proteine|carbo|grassi) da reincollare con "Applica i macro".
-function buildDiaryText(limitDays){
-  var days = nutritionDays(limitDays);
-  var lines = [];
-  var mt = computeMesocicloTargets(); // target della fase Mesociclo attuale, non più i fissi a prescindere (vedi computeTargetsForDate)
-  lines.push("Diario alimentare — " + (limitDays === 1 ? "oggi" : "ultimi " + limitDays + " giorni"));
-  lines.push("Target: giorno di allenamento " + mt.allenamento.kcal + " kcal / " + mt.allenamento.prot + "g prot / " + mt.allenamento.carb + "g carb / " + mt.allenamento.grassi + "g grassi — giorno di riposo " + mt.riposo.kcal + " kcal / " + mt.riposo.prot + "g prot / " + mt.riposo.carb + "g carb / " + mt.riposo.grassi + "g grassi.");
-  var avg7 = sevenDayAvg();
-  if(avg7) lines.push("Peso corporeo (media 7gg): " + fmtNum(avg7) + " kg.");
-  lines.push("");
-  lines.push("Per ogni pasto qui sotto SENZA valore [già calcolato: ...], calcola kcal/proteine/carboidrati/grassi e includi nella risposta una riga per pasto in questo formato esatto (una riga per pasto, niente altro su quella riga): id|kcal|proteine_g|carbo_g|grassi_g — userò la tua risposta intera, incollata così com'è, per aggiornare l'app.");
-  lines.push("");
-  if(!days.length){
-    lines.push("(nessun pasto registrato)");
-  } else {
-    days.forEach(function(d){
-      var dt = dayTypeFor(d.date);
-      var dTarget = computeTargetsForDate(d.date);
-      var rideNote = dTarget.ride ? (" + bici " + BIKE_RATES[dTarget.ride.tipo].label + " " + fmtNum(dTarget.ride.ore) + "h (target del giorno: " + dTarget.kcal + " kcal / " + dTarget.carb + "g carb)") : "";
-      lines.push(fmtDateIt(d.date) + " — " + (dt === "allenamento" ? "giorno di allenamento" : "giorno di riposo") + rideNote);
-      d.entries.forEach(function(n){
-        var macroTag = hasMacro(n) ? "  [già calcolato: "+fmtNum(n.kcal)+" kcal / "+fmtNum(n.prot)+"g prot / "+fmtNum(n.carb)+"g carb / "+fmtNum(n.fat)+"g grassi]" : "";
-        lines.push("- " + (n.mealType || "Pasto") + ": " + n.text + "  {id: "+n.id+"}" + macroTag);
-      });
-      lines.push("");
-    });
-  }
-  return lines.join("\n").trim();
-}
 
 /* ============================================================
    ANALISI ALLENAMENTO CON L'IA: testo da copiare in chat, risposta salvata così com'è
@@ -768,7 +735,7 @@ function cycleStatusText(){
   return "Prossima seduta di ciascun esercizio principale: " + parts.join("; ") + ".";
 }
 function trainingRulesText(){
-  return "Regole di progressione (Project Invictus): esercizi principali (panca piana, squat, dips zavorrate) — Progressione Lineare di Carico, ciclo di 5 settimane, serie fisse (4x, 2x in scarico), solo le rip scendono mentre il carico sale in base al %1RM stimato (sett.1 4x8@73%, sett.2 4x6@78%, sett.3 4x5@82%, sett.4 4x3@88%, sett.5 scarico 2x3@85%); il carico in kg è ricavato dal massimale stimato con Epley dallo storico (serie più pesante mai registrata, valida perché si allena a cedimento vero). Esercizi accessori (range di ripetizioni), RPE 8,5-10 (0-1 rip di riserva) — si sale prima con le ripetizioni fino al limite alto del range, si aggiunge carico solo quando TUTTE le serie chiudono al limite alto, poi si riparte dal limite basso. Leg raise (isolamento/finisher) può arrivare a RPE 10/cedimento tecnico, ginocchia a 90° per limiti di flessibilità, progressione prima con le ripetizioni poi con zavorra ai piedi. Deload ogni ~5 settimane: nella settimana di scarico i principali fanno 2x3 @85%, gli accessori metà delle serie (arrotondata per eccesso) con gli stessi carichi. Fase alimentare attuale: " + (MESOCICLO_OBJ_LABELS[state.mesociclo.obiettivo] || state.mesociclo.obiettivo) + ".";
+  return "Regole di progressione (Project Invictus): esercizi principali (panca piana, squat, dips zavorrate) — Progressione Lineare di Carico, ciclo di 5 settimane, serie fisse (4x, 2x in scarico), solo le rip scendono mentre il carico sale in base al %1RM stimato (sett.1 4x8@73%, sett.2 4x6@78%, sett.3 4x5@82%, sett.4 4x3@88%, sett.5 scarico 2x3@85%); il carico in kg è ricavato dal massimale stimato con Epley dallo storico (serie più pesante mai registrata, valida perché si allena a cedimento vero). Esercizi accessori (range di ripetizioni), RPE 8,5-10 (0-1 rip di riserva) — si sale prima con le ripetizioni fino al limite alto del range, si aggiunge carico solo quando TUTTE le serie chiudono al limite alto, poi si riparte dal limite basso. Leg raise (isolamento/finisher) può arrivare a RPE 10/cedimento tecnico, ginocchia a 90° per limiti di flessibilità, progressione prima con le ripetizioni poi con zavorra ai piedi. Deload ogni ~5 settimane: nella settimana di scarico i principali fanno 2x3 @85%, gli accessori metà delle serie (arrotondata per eccesso) con gli stessi carichi. Fase alimentare attuale: " + phaseLabel() + ".";
 }
 function buildSessionAnalysisText(){
   var list = sortedWorkoutsAsc();
@@ -1567,7 +1534,8 @@ function toJSON(){
     cookDays: state.cookDays,
     mesociclo: state.mesociclo,
     partner: state.partner,
-    shoppingChecked: state.shoppingChecked
+    shoppingChecked: state.shoppingChecked,
+    pasti: state.pasti
   }, null, 2);
 }
 
@@ -1617,91 +1585,9 @@ var vitaInput = null;  // circonferenza vita (cm) del giorno, in modifica prima 
 var colloInput = null; // circonferenza collo (cm), stessa logica di vitaInput
 var bikeOreInput = null; // ore dell'uscita in bici di oggi, in modifica prima di salvare
 var bikeTipoInput = undefined; // tipo scelto ma non ancora salvato ("gravel"/"enduro"/null); undefined = non ancora inizializzato da state
-var nutriDraft = null; // {id, date, mealType, text} — presente solo mentre si modifica un pasto già salvato
-var macroPasteMessage = ""; // esito dell'ultimo "Applica i macro", mostrato finché non se ne fa un altro o si cambia tab
 var lastTrainingCopyMode = "sessione"; // ricorda quale testo (sessione/settimana) è stato copiato per ultimo, per etichettare l'analisi salvata
 
-function saveNewMeal(text){
-  text = String(text || "").trim();
-  if(!text) return;
-  var ext = extractMealType(text);
-  var mealType = ext.mealType || guessMealTypeByHour();
-  var body = ext.text.trim() || text;
-  state.nutrition.push({id: uid(), date: todayISO(), mealType: mealType, text: body});
-  persistAll();
-  toast("Pasto salvato ✓");
-  render();
-}
-
-function openNutriEdit(id){
-  var n = state.nutrition.find(function(x){ return x.id === id; });
-  if(!n) return;
-  nutriDraft = {id: n.id, date: n.date, mealType: n.mealType || "Pasto", text: n.text};
-  render();
-}
-
-function saveNutriEdit(){
-  if(!nutriDraft) return;
-  var text = String(nutriDraft.text || "").trim();
-  if(!text) return;
-  var n = state.nutrition.find(function(x){ return x.id === nutriDraft.id; });
-  if(n){
-    n.date = nutriDraft.date;
-    n.mealType = nutriDraft.mealType;
-    n.text = text;
-    persistAll();
-    toast("Pasto aggiornato ✓");
-  }
-  nutriDraft = null;
-  render();
-}
-
-function renderNutriRow(n){
-  if(nutriDraft && nutriDraft.id === n.id){
-    var h = '<div class="exercise">';
-    h += '<div class="field"><label>Data</label><input type="date" value="'+nutriDraft.date+'" max="'+todayISO()+'" data-act="nutri-edit-date"></div>';
-    h += '<div class="field"><label>Pasto</label><div class="btn-row" style="flex-wrap:wrap;">';
-    MEAL_TYPES.forEach(function(mt){
-      h += '<button class="btn small'+(nutriDraft.mealType===mt?' primary':'')+'" style="width:auto;min-height:38px;padding:6px 12px;" data-act="nutri-edit-type" data-type="'+mt+'">'+mt+'</button>';
-    });
-    h += '</div></div>';
-    h += '<div class="field"><label>Testo</label><textarea class="export-box" id="nutriEditText" data-act="nutri-edit-text" style="min-height:70px;font-family:inherit;font-size:15px;">'+nutriDraft.text.replace(/</g,"&lt;")+'</textarea></div>';
-    h += '<div class="btn-row" style="margin-top:10px;">';
-    h += '<button class="btn ghost" data-act="nutri-edit-cancel">Annulla</button>';
-    h += '<button class="btn small danger" data-act="delete-nutri" data-id="'+n.id+'">Elimina</button>';
-    h += '<button class="btn primary" data-act="nutri-edit-save">Salva</button>';
-    h += '</div>';
-    h += '</div>';
-    return h;
-  }
-  var preview = n.text.length > 70 ? n.text.slice(0,70)+"…" : n.text;
-  var macroBadge = hasMacro(n) ? ' · '+fmtNum(n.kcal)+' kcal' : ' · <span class="muted">macro non calcolato</span>';
-  return '<div class="session-item"><div class="row between head" data-act="nutri-edit-open" data-id="'+n.id+'"><div><strong>'+(n.mealType||"Pasto")+'</strong>'+macroBadge+' · '+preview+'</div></div></div>';
-}
-
-// Applica i macro incollati: legge solo le righe id|kcal|proteine|carbo|grassi e ignora il resto.
-function applyMacroPaste(text){
-  var lines = String(text || "").split(/\r?\n/);
-  var applied = 0;
-  lines.forEach(function(line){
-    var parts = line.split("|");
-    if(parts.length !== 5) return;
-    var id = parts[0].trim();
-    var n = state.nutrition.find(function(x){ return x.id === id; });
-    if(!n) return;
-    var kcal = parseFloat(String(parts[1]).replace(",", "."));
-    var prot = parseFloat(String(parts[2]).replace(",", "."));
-    var carb = parseFloat(String(parts[3]).replace(",", "."));
-    var fat = parseFloat(String(parts[4]).replace(",", "."));
-    if([kcal,prot,carb,fat].some(function(v){ return isNaN(v) || v < 0; })) return;
-    n.kcal = round1(kcal); n.prot = round1(prot); n.carb = round1(carb); n.fat = round1(fat);
-    applied++;
-  });
-  if(applied) persistAll();
-  return {applied: applied};
-}
-
-// Diario alimentare, peso e circonferenze (in fondo alla tab Alimentazione).
+// Peso e circonferenze (in fondo alla tab Alimentazione).
 function buildSaluteHTML(){
   var todayEntry = state.bodyweight.find(function(b){ return b.date === todayISO(); });
   if(pesoInput === null){
@@ -1719,74 +1605,6 @@ function buildSaluteHTML(){
   var avg7 = sevenDayAvg();
 
   var html = "";
-
-  html += '<hr class="sep">';
-  html += '<div class="card"><h2 style="margin:0;">Salute</h2><p class="small muted" style="margin-top:6px;">Diario alimentare, analisi con l\'IA, peso e circonferenze.</p></div>';
-
-  html += '<div class="card">';
-  html += '<h2 style="margin:0;">Diario alimentare</h2>';
-  html += '<div class="muted small" style="margin-top:6px;">Scrivi cosa hai mangiato, es: "Pranzo: 150g petto di pollo, 60g riso, verdure, un cucchiaio d\'olio". Se scrivi il pasto come prima parola (Colazione/Pranzo/Cena/...) lo riconosco, altrimenti lo indovino dall\'ora — sempre correggibile dopo.</div>';
-  html += '<div class="field" style="margin-top:10px;"><textarea class="export-box" id="mealTextInput" style="min-height:80px;font-family:inherit;font-size:15px;" placeholder="Scrivi qui il pasto..."></textarea></div>';
-  html += '<button class="btn primary" data-act="meal-save-new">Salva pasto</button>';
-  html += '</div>';
-
-  var dt = dayTypeFor(todayISO());
-  var t = computeTargetsForDate(todayISO());
-  var todayDay = nutritionDays(1)[0];
-  var todayTot = nutritionTotalsForDate(todayISO());
-  html += '<div class="card">';
-  html += '<h3 style="margin:0;">Oggi ('+(dt==="allenamento"?"giorno di allenamento":"giorno di riposo")+(t.ride?" + bici":"")+')</h3>';
-  html += '<div class="muted small" style="margin-top:4px;">Target di riferimento: '+t.kcal+' kcal · '+t.prot+'g prot · '+t.carb+'g carb · '+t.grassi+'g grassi</div>';
-  if(t.ride){
-    html += '<div class="muted small" style="margin-top:2px;">Di cui +'+t.ride.extraKcal+' kcal / +'+t.ride.extraCarb+'g carb per l\'uscita '+BIKE_RATES[t.ride.tipo].label+' di '+fmtNum(t.ride.ore)+'h registrata oggi.</div>';
-  }
-  if(todayTot.computed > 0){
-    html += '<div class="grid2" style="margin-top:10px;">';
-    [["kcal","Kcal",t.kcal,""],["prot","Proteine",t.prot,"g"],["carb","Carboidrati",t.carb,"g"],["fat","Grassi",t.grassi,"g"]].forEach(function(p){
-      var consumed = todayTot.totals[p[0]];
-      var remaining = round1(p[2] - consumed);
-      html += '<div class="stat"><div class="num">'+fmtNum(remaining)+p[3]+'</div><div class="label">'+p[1]+' rimanenti (mangiati '+fmtNum(consumed)+p[3]+')</div></div>';
-    });
-    html += '</div>';
-    if(todayTot.computed < todayTot.entries.length){
-      html += '<div class="muted small" style="margin-top:8px;">'+(todayTot.entries.length - todayTot.computed)+' pasto/i di oggi senza macro ancora — i rimanenti qui sopra non li includono finché non li calcoli con "Analisi con l\'IA" qui sotto.</div>';
-    }
-  } else if(todayDay && todayDay.entries.length){
-    html += '<div class="muted small" style="margin-top:10px;">Nessun pasto di oggi ha ancora i macro calcolati — usa "Analisi con l\'IA" qui sotto per saperlo, così vedi anche quanto ti resta per il prossimo pasto.</div>';
-  }
-  if(todayDay && todayDay.entries.length){
-    html += '<div style="margin-top:10px;">';
-    todayDay.entries.forEach(function(n){ html += renderNutriRow(n); });
-    html += '</div>';
-  } else {
-    html += '<div class="muted small" style="margin-top:10px;">Ancora nessun pasto registrato oggi.</div>';
-  }
-  html += '</div>';
-
-  var prevDays = nutritionDays(8).filter(function(d){ return d.date !== todayISO(); });
-  if(prevDays.length){
-    html += '<div class="card"><h3 style="margin:0;">Giorni precedenti</h3>';
-    prevDays.forEach(function(d){
-      var dtp = dayTypeFor(d.date);
-      var ridep = state.bikeRides.find(function(r){ return r.date === d.date; });
-      html += '<div class="muted small" style="margin-top:12px;">'+fmtDateIt(d.date)+' · '+(dtp==="allenamento"?"allenamento":"riposo")+(ridep?" + bici ("+BIKE_RATES[ridep.tipo].label+")":"")+'</div>';
-      d.entries.forEach(function(n){ html += renderNutriRow(n); });
-    });
-    html += '</div>';
-  }
-
-  html += '<div class="card">';
-  html += '<h3 style="margin:0;">Analisi con l\'IA</h3>';
-  html += '<div class="muted small" style="margin-top:6px;">1) Copia il diario e incollalo in una chat con Claude, per farti calcolare kcal/macro e avere consigli (es. cosa mangiare a cena se hai saltato un pasto). 2) Incolla qui la sua risposta intera: i numeri vengono applicati da soli ai pasti giusti, il resto del testo viene ignorato.</div>';
-  html += '<div class="btn-row" style="margin-top:10px;">';
-  html += '<button class="btn" data-act="copy-diary" data-days="1">Copia oggi</button>';
-  html += '<button class="btn" data-act="copy-diary" data-days="7">Copia ultimi 7gg</button>';
-  html += '</div>';
-  html += '<div id="diaryTextBox"></div>';
-  html += '<div class="field" style="margin-top:14px;"><label>Incolla qui la risposta dell\'IA</label><textarea class="export-box" id="macroPasteInput" style="min-height:90px;font-family:inherit;font-size:14px;" placeholder="Incolla qui..."></textarea></div>';
-  html += '<button class="btn primary" data-act="apply-macro-paste">Applica i macro</button>';
-  if(macroPasteMessage) html += '<div class="muted small" style="margin-top:8px;">'+macroPasteMessage+'</div>';
-  html += '</div>';
 
   html += '<hr class="sep">';
 
@@ -1976,15 +1794,535 @@ function renderConsulta(){
 }
 
 /* ============================================================
+   PASTI: diario a tocchi (dal 2026-10-20)
+   Per ogni pasto: da piano / saltato; a pranzo e cena la fonte proteica, il pasto libero o saltato.
+   ============================================================ */
+var PASTI = [
+  {k:"colazione", label:"Colazione", main:false},
+  {k:"mattina", label:"Metà mattina", main:false},
+  {k:"pranzo", label:"Pranzo", main:true},
+  {k:"pomeriggio", label:"Pomeriggio", main:false},
+  {k:"cena", label:"Cena", main:true}
+];
+// Fonti proteiche di pranzo e cena = opzioni del PDF. Macinato, hamburger e polpette valgono come il pollo
+// (scelta pratica di Marco, 2026-10-20).
+var FONTI = [
+  {k:"pollo", label:"Pollo/tacchino", hint:"anche macinato, hamburger, polpette"},
+  {k:"pesce", label:"Pesce"},
+  {k:"uova", label:"Uova"},
+  {k:"legumi", label:"Legumi"},
+  {k:"piadina", label:"Piadina"},
+  {k:"altro", label:"Altro del piano", hint:"tempeh, fiocchi di latte"}
+];
+// Frequenze settimanali consigliate nelle note del piano del nutrizionista.
+var FREQ_CONSIGLIATE = {uova:"2-4", pesce:"più di 2", legumi:"più di 2", pollo:"circa 2"};
+// Quota di kcal (k) e proteine (p) di ogni pasto sulla giornata: opzione 1 di ogni pasto del piano in PDF,
+// con i valori per 100 g del database usato per il PDF (CREA/etichette). Serve a togliere i pasti saltati.
+var MEAL_SHARE = {
+  riposo:      {colazione:{k:.248,p:.300}, mattina:{k:.103,p:.135}, pranzo:{k:.239,p:.211}, pomeriggio:{k:.103,p:.135}, cena:{k:.307,p:.219}},
+  allenamento: {colazione:{k:.220,p:.301}, mattina:{k:.085,p:.133}, pranzo:{k:.253,p:.216}, pomeriggio:{k:.129,p:.112}, cena:{k:.314,p:.238}}
+};
+var mealDate = null; // giorno mostrato nella card Pasti (null = oggi)
+
+function pastoOf(date, k){
+  return state.pasti.find(function(x){ return x.date === date && x.pasto === k; }) || null;
+}
+// Un tocco segna, lo stesso tocco di nuovo toglie.
+function setPasto(date, k, esito, fonte){
+  var cur = pastoOf(date, k);
+  state.pasti = state.pasti.filter(function(x){ return !(x.date === date && x.pasto === k); });
+  if(!(cur && cur.esito === esito && (cur.fonte || null) === (fonte || null))){
+    var e = {date: date, pasto: k, esito: esito};
+    if(fonte) e.fonte = fonte;
+    if(cur && cur.nota && esito === "libero") e.nota = cur.nota;
+    state.pasti.push(e);
+  }
+  persistAll();
+}
+// Calorie e proteine mangiate in un giorno secondo i pasti segnati: target del giorno meno i pasti saltati.
+// Il pasto libero conta come da piano (il piano ne prevede uno a settimana). Giorni senza pasti segnati: come da piano.
+function dayIntake(date){
+  var t = computeTargetsForDate(date);
+  var base = computeMesocicloTargets()[t.baseKey];
+  var sh = MEAL_SHARE[t.baseKey];
+  var kcal = t.kcal, prot = t.prot, segnati = 0, saltati = 0, liberi = 0, piano = 0;
+  PASTI.forEach(function(p){
+    var e = pastoOf(date, p.k);
+    if(!e) return;
+    segnati++;
+    if(e.esito === "saltato"){ saltati++; kcal -= sh[p.k].k * base.kcal; prot -= sh[p.k].p * base.prot; }
+    else if(e.esito === "libero") liberi++;
+    else piano++;
+  });
+  return {kcal: kcal, prot: prot, target: t, segnati: segnati, saltati: saltati, liberi: liberi, piano: piano};
+}
+function weekStartISO(iso){
+  var p = iso.split("-").map(Number), d = new Date(p[0], p[1]-1, p[2]);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return isoFromDate(d);
+}
+function addDaysISO(iso, n){
+  var p = iso.split("-").map(Number), d = new Date(p[0], p[1]-1, p[2]);
+  d.setDate(d.getDate() + n);
+  return isoFromDate(d);
+}
+function daysBetween(a, b){
+  var pa = a.split("-").map(Number), pb = b.split("-").map(Number);
+  return Math.round((new Date(pb[0], pb[1]-1, pb[2]) - new Date(pa[0], pa[1]-1, pa[2])) / 86400000);
+}
+// Riepilogo dei pasti fra due date incluse (solo giorni fino a oggi).
+function mealsSummary(from, to){
+  var r = {giorni:0, giorniSegnati:0, segnati:0, piano:0, liberi:0, saltati:0, fonti:{}, prot:0, protTarget:0};
+  for(var d = from; d <= to && d <= todayISO(); d = addDaysISO(d, 1)){
+    var di = dayIntake(d);
+    r.giorni++;
+    if(di.segnati){ r.giorniSegnati++; r.prot += di.prot; r.protTarget += di.target.prot; }
+    r.segnati += di.segnati; r.piano += di.piano; r.liberi += di.liberi; r.saltati += di.saltati;
+    ["pranzo","cena"].forEach(function(k){
+      var e = pastoOf(d, k);
+      if(e && e.esito === "piano" && e.fonte) r.fonti[e.fonte] = (r.fonti[e.fonte] || 0) + 1;
+    });
+  }
+  return r;
+}
+
+function pastiCardHTML(){
+  var date = mealDate || todayISO();
+  var dt = dayTypeFor(date);
+  var html = '<div class="card">';
+  html += '<div class="row between"><h2 style="margin:0;">Pasti</h2><div class="row" style="gap:6px;">';
+  html += '<button class="btn ghost small" style="width:auto;min-height:36px;padding:4px 12px;" data-act="meal-day" data-delta="-1">◀</button>';
+  html += '<span class="small" style="min-width:86px;text-align:center;">'+(date === todayISO() ? "Oggi" : fmtDateIt(date))+'</span>';
+  html += '<button class="btn ghost small" style="width:auto;min-height:36px;padding:4px 12px;" data-act="meal-day" data-delta="1"'+(date >= todayISO() ? ' disabled' : '')+'>▶</button>';
+  html += '</div></div>';
+  var tg = computeTargetsForDate(date);
+  html += '<div class="small" style="margin-top:6px;"><strong>Target del giorno: '+tg.kcal+' kcal · '+tg.prot+' g prot · '+tg.carb+' g carb · '+tg.grassi+' g grassi</strong></div>';
+  if(tg.ride) html += '<div class="muted small">Di cui +'+tg.ride.extraKcal+' kcal (+'+tg.ride.extraCarb+' g carboidrati) per l\'uscita '+BIKE_RATES[tg.ride.tipo].label+' di '+fmtNum(tg.ride.ore)+' h.</div>';
+  html += '<div class="muted small" style="margin-top:4px;">'+(dt === "allenamento" ? "Giorno di allenamento" : "Giorno di riposo (diventa di allenamento quando salvi la seduta)")+'. Tocca di nuovo un pulsante per togliere la scelta.</div>';
+  PASTI.forEach(function(p){
+    var e = pastoOf(date, p.k);
+    html += '<div class="meal-row" style="margin-top:10px;"><div class="small" style="font-weight:700;margin-bottom:6px;">'+p.label+'</div>';
+    html += '<div class="btn-row" style="flex-wrap:wrap;gap:6px;">';
+    function b(esito, fonte, label){
+      var on = e && e.esito === esito && (e.fonte || null) === (fonte || null);
+      return '<button class="btn small'+(on?' primary':'')+'" style="width:auto;min-height:40px;padding:6px 10px;" data-act="meal-set" data-date="'+date+'" data-pasto="'+p.k+'" data-esito="'+esito+'"'+(fonte?' data-fonte="'+fonte+'"':'')+'>'+label+'</button>';
+    }
+    if(p.main){
+      FONTI.forEach(function(f){ html += b("piano", f.k, f.label); });
+      html += b("libero", null, "Pasto libero");
+    } else {
+      html += b("piano", null, "Da piano");
+    }
+    html += b("saltato", null, "Saltato");
+    html += '</div>';
+    if(e && e.esito === "libero"){
+      html += '<div class="field" style="margin:6px 0 0 0;"><input type="text" placeholder="Cosa hai mangiato (facoltativo)" value="'+((e.nota||"").replace(/"/g,"&quot;"))+'" data-act="meal-nota" data-date="'+date+'" data-pasto="'+p.k+'"></div>';
+    }
+    html += '</div>';
+  });
+  html += '<div class="muted small" style="margin-top:8px;">Pollo/tacchino comprende macinato, hamburger e polpette (stessa grammatura del pollo). Altro del piano: tempeh, fiocchi di latte.</div>';
+  html += '</div>';
+
+  var ws = weekStartISO(date), we = addDaysISO(ws, 6);
+  var r = mealsSummary(ws, we);
+  html += '<div class="card"><h3 style="margin:0;">Settimana dal '+fmtDateIt(ws)+'</h3>';
+  if(!r.segnati){
+    html += '<div class="muted small" style="margin-top:6px;">Nessun pasto segnato questa settimana.</div>';
+  } else {
+    html += '<div class="grid2" style="margin-top:10px;">';
+    html += '<div class="stat"><div class="num">'+Math.round(r.piano / r.segnati * 100)+'%</div><div class="label">pasti da piano ('+r.piano+' su '+r.segnati+' segnati)</div></div>';
+    html += '<div class="stat"><div class="num">'+r.liberi+'/1</div><div class="label">pasti liberi (il piano ne prevede 1)</div></div>';
+    html += '<div class="stat"><div class="num">'+r.saltati+'</div><div class="label">pasti saltati</div></div>';
+    html += '<div class="stat"><div class="num">'+(r.giorniSegnati ? Math.round(r.prot / r.giorniSegnati) : "—")+' g</div><div class="label">proteine medie stimate (target '+(r.giorniSegnati ? Math.round(r.protTarget / r.giorniSegnati) : "—")+' g)</div></div>';
+    html += '</div>';
+    html += '<table style="margin-top:10px;"><thead><tr><th>Fonte a pranzo e cena</th><th>Volte</th><th>Consigliato</th></tr></thead><tbody>';
+    FONTI.forEach(function(f){
+      html += '<tr><td>'+f.label+'</td><td>'+(r.fonti[f.k] || 0)+'</td><td>'+(FREQ_CONSIGLIATE[f.k] || "—")+'</td></tr>';
+    });
+    html += '</tbody></table>';
+    html += '<div class="muted small" style="margin-top:6px;">Proteine stimate: target del giorno meno i pasti saltati (quota di ogni pasto dal piano). Frequenze consigliate dalle note del piano.</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+/* ============================================================
+   WIZARD "FAI IL PUNTO": bilancio della fase, mantenimento misurato, nuova fase
+   Metodo in wizard-fasi.md: livello delle calorie dal mantenimento misurato di Marco
+   (Piramide della nutrizione; Project Nutrition), forma dai piani del nutrizionista.
+   ============================================================ */
+var wiz = null; // stato del wizard aperto (non salvato finché non si conferma)
+
+function bodyweightAvg(from, to){
+  var v = state.bodyweight.filter(function(b){ return b.date >= from && b.date <= to; });
+  if(!v.length) return {n:0, avg:null};
+  return {n: v.length, avg: v.reduce(function(a, b){ return a + b.peso; }, 0) / v.length};
+}
+// Settimane complete della fase, a blocchi di 7 giorni dalla data di inizio.
+function phaseWeeks(){
+  var start = state.mesociclo.dataInizio || todayISO(), out = [];
+  for(var i = 0; ; i++){
+    var a = addDaysISO(start, i*7), b = addDaysISO(start, i*7 + 6);
+    if(b >= todayISO()) break;
+    var w = bodyweightAvg(a, b);
+    out.push({i: i, from: a, to: b, n: w.n, avg: w.avg});
+  }
+  return out;
+}
+// Mantenimento ≈ calorie mangiate + calo settimanale × 7.700 ÷ 7, dalla 2ª settimana all'ultima completa
+// (la 1ª si scarta: acqua e glicogeno). Servono 3 settimane complete e almeno 4 pesate nelle due confrontate.
+function estimateMaintenance(){
+  var weeks = phaseWeeks();
+  var res = {ok:false, weeks: weeks};
+  if(weeks.length < 3){ res.motivo = "servono almeno 3 settimane complete di fase (finora " + weeks.length + ")"; return res; }
+  var w2 = weeks[1], wl = weeks[weeks.length - 1];
+  if(w2.n < 4 || wl.n < 4){ res.motivo = "servono almeno 4 pesate nella 2ª settimana e nell'ultima (ora " + w2.n + " e " + wl.n + ")"; return res; }
+  var nW = wl.i - w2.i;
+  var rate = (wl.avg - w2.avg) / nW; // kg a settimana (negativo = calo)
+  var sumK = 0, days = 0, nonSegnati = 0;
+  for(var d = w2.from; d <= wl.to; d = addDaysISO(d, 1)){
+    var di = dayIntake(d);
+    sumK += di.kcal; days++;
+    if(!di.segnati) nonSegnati++;
+  }
+  var troppiLiberi = 0;
+  for(var k = w2.i; k <= wl.i; k++){
+    var ms = mealsSummary(weeks[k].from, weeks[k].to);
+    if(ms.liberi > 1) troppiLiberi++;
+  }
+  var intake = sumK / days;
+  res.ok = true;
+  res.rate = rate;
+  res.ratePct = rate / w2.avg;
+  res.intake = intake;
+  res.mant = Math.round(intake - rate * KCAL_PER_KG / 7);
+  res.giorni = days;
+  res.nonSegnati = nonSegnati;
+  res.troppiLiberi = troppiLiberi;
+  res.w2 = w2; res.wl = wl;
+  return res;
+}
+function vitaAt(fromDate, last){
+  var v = state.bodyweight.filter(function(b){ return b.vita && b.date >= fromDate; }).sort(function(a, b){ return a.date < b.date ? -1 : 1; });
+  if(!v.length) return null;
+  return last ? v[v.length - 1] : v[0];
+}
+function sedutePhase(){
+  var start = state.mesociclo.dataInizio || todayISO();
+  return state.workouts.filter(function(w){ return w.date >= start; }).length;
+}
+function currentRitmo(){
+  var m = state.mesociclo, ph = PHASES[m.obiettivo];
+  if(m.ritmo) return m.ritmo;
+  if(ph && ph.tipo === "deficit") return RITMI_DEFICIT[0];
+  if(ph && ph.tipo === "surplus") return RITMI_SURPLUS[1];
+  return null;
+}
+// Fase evidenziata come passo successivo (sequenza dei piani del nutrizionista + pausa di Invictus dopo 4-8 settimane di deficit).
+function suggestedNext(){
+  var m = state.mesociclo, days = daysBetween(m.dataInizio || todayISO(), todayISO());
+  if(m.obiettivo === "dimagrimento" || m.obiettivo === "cut") return days >= 28 ? "pausa" : "continua";
+  if(m.obiettivo === "reverse") return (m.reverseStep || 1) >= 3 ? "massa" : "reverse";
+  if(m.obiettivo === "massa") return "cut";
+  if(m.obiettivo === "ricomposizione") return "dimagrimento";
+  return null;
+}
+function wizOpen(){
+  var est = estimateMaintenance();
+  var avg7 = sevenDayAvg();
+  wiz = {step: 1, est: est, mant: est.ok ? est.mant : (state.mesociclo.mantenimento ? state.mesociclo.mantenimento.kcal : null),
+         scelta: null, ritmo: null, peso: avg7 ? Math.round(avg7 * 10) / 10 : null, durata: null, aiText: null};
+  showTab("mealprep");
+}
+// Calcola la proposta per la scelta corrente: {ok, targets, T, piano, obiettivo, reverseStep, ritmo, durata, avvisi[], motivo}
+function wizProposal(){
+  var m = state.mesociclo, n = seduteSettimana(), cur = computeMesocicloTargets();
+  var curT = weeklyAvgKcal(cur, n), sc = wiz.scelta, out = {avvisi: []};
+  var peso = wiz.peso, M = wiz.mant;
+  var curPlan = m.piano || "base";
+  if(!sc) return {ok:false, motivo:"scegli cosa fare"};
+  if(sc === "continua"){
+    out.obiettivo = m.obiettivo; out.piano = curPlan; out.T = curT; out.ritmo = m.ritmo || null; out.reverseStep = m.reverseStep;
+    out.targets = {riposo: cur.riposo, allenamento: cur.allenamento};
+    out.fattore = PLANS[curPlan] ? cur.riposo.kcal / PLANS[curPlan].riposo.kcal : null;
+  } else if(sc === "aggiusta"){
+    var e = wiz.est, ritmo = currentRitmo(), ph = PHASES[m.obiettivo];
+    if(!e.ok) return {ok:false, motivo:"per aggiustare serve il ritmo misurato: " + e.motivo};
+    if(!ritmo || !ph) return {ok:false, motivo:"questa fase non ha un ritmo di riferimento"};
+    var atteso = ph.tipo === "deficit" ? -ritmo * e.w2.avg : ritmo * e.w2.avg / 4.33; // kg a settimana
+    var adj = -(e.rate - atteso) * KCAL_PER_KG / 7;
+    if(Math.abs(adj) < 100) return {ok:false, motivo:"il ritmo reale ("+fmtNum(Math.round(e.rate*100)/100)+" kg/sett.) è in linea con quello previsto ("+fmtNum(Math.round(atteso*100)/100)+" kg/sett.): nessun aggiustamento"};
+    adj = Math.max(-200, Math.min(200, adj));
+    adj = Math.round(adj / 10) * 10;
+    out.obiettivo = m.obiettivo; out.piano = curPlan; out.ritmo = m.ritmo || ritmo; out.reverseStep = m.reverseStep;
+    out.T = curT + adj; out.adj = adj;
+  } else if(sc === "reverse"){
+    var step = m.obiettivo === "reverse" ? Math.min((m.reverseStep || 1) + 1, 3) : 1;
+    out.obiettivo = "reverse"; out.reverseStep = step; out.piano = "reverse" + step; out.T = curT + REVERSE_STEP_KCAL;
+  } else {
+    var phx = PHASES[sc];
+    if(!M) return {ok:false, motivo:"serve il mantenimento (stimato o inserito al passo 1)"};
+    out.obiettivo = sc;
+    out.piano = phx.piano || curPlan;
+    if(phx.tipo === "mantenimento") out.T = M;
+    if(phx.tipo === "deficit"){
+      out.ritmo = wiz.ritmo || RITMI_DEFICIT[0];
+      if(!peso) return {ok:false, motivo:"serve il peso medio"};
+      var def = out.ritmo * peso * KCAL_PER_KG / 7;
+      out.T = M - def;
+      out.deficit = def;
+      if(def > 500) out.avvisi.push("Deficit di " + Math.round(def) + " kcal/die: oltre circa 500 la perdita di massa magra cresce (Piramide, Murphy & Koehler 2022).");
+      var pct = def / M;
+      if(pct > 0.20) out.avvisi.push("Deficit pari al " + Math.round(pct*100) + "% del mantenimento, sopra la fascia 10-20% di Project Invictus.");
+    }
+    if(phx.tipo === "surplus"){
+      out.ritmo = wiz.ritmo || RITMI_SURPLUS[1];
+      if(!peso) return {ok:false, motivo:"serve il peso medio"};
+      out.surplus = out.ritmo * peso / 4.33 * KCAL_PER_KG / 7;
+      out.T = M + out.surplus;
+    }
+  }
+  if(!out.targets){
+    var bt = buildTargets(out.piano, out.T, n);
+    out.targets = {riposo: bt.riposo, allenamento: bt.allenamento};
+    out.fattore = bt.fattore;
+  }
+  if(peso && out.targets.riposo.prot / peso < 1.6) out.avvisi.push("Proteine " + fmtNum(Math.round(out.targets.riposo.prot / peso * 10) / 10) + " g/kg nel giorno di riposo: sotto il minimo di 1,6 g/kg della Piramide.");
+  if(M) out.pctMant = out.T / M;
+  out.durata = wiz.durata || (sc === "continua" || sc === "aggiusta" ? (m.durataSettimane || 4) : (MESOCICLO_DURATA_DEFAULT[out.obiettivo] || 4));
+  out.ok = true;
+  return out;
+}
+function wizConfirm(){
+  var p = wizProposal();
+  if(!p.ok) return;
+  var old = JSON.parse(JSON.stringify(state.mesociclo));
+  var storico = old.storico || [];
+  delete old.storico;
+  old.chiusura = {data: todayISO(), stima: wiz.est.ok ? {mant: wiz.est.mant, rate: wiz.est.rate, intake: Math.round(wiz.est.intake)} : {motivo: wiz.est.motivo}, mantenimentoUsato: wiz.mant || null, scelta: wiz.scelta};
+  if(wiz.aiRisposta) old.chiusura.analisiIA = wiz.aiRisposta;
+  if(wiz.aiText) old.chiusura.testoIA = wiz.aiText;
+  storico.push(old);
+  var stessaFase = (wiz.scelta === "continua" || wiz.scelta === "aggiusta");
+  var vita = vitaAt("0000-00-00", true);
+  state.mesociclo = {
+    obiettivo: p.obiettivo, piano: p.piano, dataInizio: todayISO(), durataSettimane: p.durata,
+    targets: p.targets, ritmo: p.ritmo || null, sedute: seduteSettimana(),
+    pesoInizio: wiz.peso || null, vitaInizio: vita ? vita.vita : null,
+    mantenimento: wiz.mant ? {kcal: wiz.mant, data: todayISO(), stimato: !!(wiz.est.ok && wiz.mant === wiz.est.mant)} : (old.mantenimento || null),
+    versione: stessaFase ? (old.versione || 1) + 1 : 1,
+    fattorePdf: p.fattore ? Math.round(p.fattore * 10000) / 10000 : null,
+    pianoPdfMigrato: true, storico: storico
+  };
+  if(p.reverseStep) state.mesociclo.reverseStep = p.reverseStep;
+  persistAll();
+  wiz = null;
+  toast("Fase confermata ✓");
+  render();
+}
+function wizUndo(){
+  var m = state.mesociclo;
+  if(!m.storico || !m.storico.length) return;
+  var storico = m.storico.slice(), prev = storico.pop();
+  delete prev.chiusura;
+  prev.storico = storico;
+  state.mesociclo = prev;
+  persistAll();
+  toast("Ultima conferma annullata ✓");
+  render();
+}
+// Testo per l'IA: autosufficiente, nessun nome di persona.
+function buildPhaseAIText(){
+  var m = state.mesociclo, t = computeMesocicloTargets(), n = seduteSettimana(), e = wiz ? wiz.est : estimateMaintenance();
+  var L = [];
+  L.push("Bilancio della fase alimentare — " + phaseLabel() + " (versione " + (m.versione || 1) + "), dal " + fmtDateIt(m.dataInizio) + ", " + daysBetween(m.dataInizio, todayISO()) + " giorni su " + (m.durataSettimane || 4) + " settimane previste.");
+  L.push("Uomo, " + state.bodyConfig.altezza + " cm, " + state.bodyConfig.eta + " anni, " + n + " sedute di pesi a settimana (schede A/B/C, progressione lineare) più uscite in bici.");
+  L.push("Target: giorno di riposo " + t.riposo.kcal + " kcal (P " + t.riposo.prot + " g, C " + t.riposo.carb + " g, G " + t.riposo.grassi + " g); giorno di allenamento " + t.allenamento.kcal + " kcal (P " + t.allenamento.prot + " g, C " + t.allenamento.carb + " g, G " + t.allenamento.grassi + " g). Le kcal includono le fibre. Forma dal " + (PLAN_LABELS[m.piano] || "piano di base") + " di un nutrizionista sportivo, livello riparametrato su di me.");
+  if(m.ritmo) L.push("Ritmo previsto: " + fmtNum(m.ritmo * 100) + "% del peso " + (PHASES[m.obiettivo] && PHASES[m.obiettivo].tipo === "surplus" ? "al mese" : "a settimana") + ".");
+  L.push("");
+  L.push("Peso, medie a blocchi di 7 giorni dall'inizio della fase:");
+  var ws = phaseWeeks();
+  if(!ws.length) L.push("- nessuna settimana completa");
+  ws.forEach(function(w){ L.push("- settimana " + (w.i + 1) + " (" + fmtDateIt(w.from) + "–" + fmtDateIt(w.to) + "): " + (w.avg ? fmtNum(Math.round(w.avg * 10) / 10) + " kg, " + w.n + " pesate" : "nessuna pesata")); });
+  var v0 = vitaAt(m.dataInizio, false), v1 = vitaAt(m.dataInizio, true);
+  if(v0) L.push("Vita: " + fmtNum(v0.vita) + " cm il " + fmtDateIt(v0.date) + (v1 && v1.date !== v0.date ? ", " + fmtNum(v1.vita) + " cm il " + fmtDateIt(v1.date) : "") + (v1 && v1.bf != null ? "; massa grassa stimata (metodo a nastro) " + fmtNum(v1.bf) + "%" : "") + ".");
+  else L.push("Vita: nessuna misura nella fase.");
+  L.push("");
+  L.push("Pasti segnati per settimana:");
+  ws.concat([{i: ws.length, from: addDaysISO(m.dataInizio, ws.length * 7), to: todayISO(), parziale: true}]).forEach(function(w){
+    if(w.from > todayISO()) return;
+    var r = mealsSummary(w.from, w.to);
+    var f = FONTI.map(function(x){ return x.label + " " + (r.fonti[x.k] || 0); }).join(", ");
+    L.push("- settimana " + (w.i + 1) + (w.parziale ? " (in corso)" : "") + ": " + r.segnati + " pasti segnati su " + r.giorni * 5 + " — da piano " + r.piano + ", liberi " + r.liberi + ", saltati " + r.saltati + "; pranzo/cena: " + f);
+  });
+  L.push("");
+  var start = m.dataInizio;
+  var sed = sortedWorkoutsAsc().filter(function(w){ return w.date >= start; });
+  L.push("Sedute di pesi nella fase: " + sed.length + ".");
+  ["panca_piana","squat","dips_zavorrate"].forEach(function(id){
+    var rows = sed.filter(function(w){ return w.exercises.some(function(x){ return x.id === id; }); }).map(function(w){
+      var x = w.exercises.find(function(y){ return y.id === id; });
+      return fmtDateIt(w.date) + " " + setsText(x.sets);
+    });
+    if(rows.length) L.push("- " + state.exercises[id].name + ": " + rows.join(" | "));
+  });
+  var rides = state.bikeRides.filter(function(r){ return r.date >= start; });
+  if(rides.length) L.push("Uscite in bici: " + rides.map(function(r){ return fmtDateIt(r.date) + " " + BIKE_RATES[r.tipo].label + " " + fmtNum(r.ore) + " h"; }).join(", ") + ".");
+  L.push("");
+  if(e.ok){
+    L.push("Mantenimento stimato dall'app: " + e.mant + " kcal/die = calorie mangiate in media " + Math.round(e.intake) + " kcal (target del giorno meno i pasti saltati, " + e.giorni + " giorni) − variazione " + fmtNum(Math.round(e.rate * 100) / 100) + " kg/settimana × 7.700 ÷ 7. Giorni senza pasti segnati (contati come da piano): " + e.nonSegnati + ". Settimane con più di un pasto libero: " + e.troppiLiberi + ".");
+  } else {
+    L.push("Mantenimento non stimabile dall'app: " + e.motivo + ".");
+  }
+  L.push("");
+  L.push("Regole che uso: deficit per perdere 0,5-1% del peso a settimana, attenzione oltre ~500 kcal/die di deficit (Muscle & Strength Pyramid); deficit 10-20% per 4-8 settimane poi 1-2 settimane al mantenimento (Project Invictus); correzioni di 100-200 kcal dopo almeno 2 settimane; reverse +50-100 kcal ogni 1-2 settimane; massa +0,5-1,5% del peso al mese (intermedio); proteine almeno 1,6 g/kg.");
+  L.push("");
+  L.push("Dammi una valutazione leggibile della fase (andamento di peso, vita, forza, aderenza) e dimmi cosa conviene fare adesso: continuare, aggiustare le calorie (di quanto) o cambiare fase (quale e con quale ritmo), con i numeri. Se i dati non bastano per decidere, dimmi quali mancano.");
+  return L.join("\n");
+}
+
+function wizHTML(){
+  var m = state.mesociclo, e = wiz.est, html = "";
+  html += '<div class="card"><div class="row between"><h2 style="margin:0;">Fai il punto</h2><span class="muted small">passo '+wiz.step+' di 5</span></div>';
+  html += '<div class="muted small" style="margin-top:4px;">Fase attuale: '+phaseLabel()+' dal '+fmtDateIt(m.dataInizio)+'. Niente cambia finché non confermi.</div></div>';
+
+  if(wiz.step === 1){
+    html += '<div class="card"><h3 style="margin:0;">Com\'è andata</h3>';
+    var ws = e.weeks || [];
+    if(!ws.length) html += '<div class="muted small" style="margin-top:6px;">Ancora nessuna settimana completa di fase.</div>';
+    else {
+      html += '<table style="margin-top:8px;"><thead><tr><th>Settimana</th><th>Peso medio</th><th>Pesate</th></tr></thead><tbody>';
+      ws.forEach(function(w){ html += '<tr><td>'+(w.i+1)+' · '+fmtDateIt(w.from).slice(0,5)+'</td><td>'+(w.avg ? fmtNum(Math.round(w.avg*10)/10)+' kg' : '—')+'</td><td>'+w.n+'</td></tr>'; });
+      html += '</tbody></table>';
+    }
+    var v0 = vitaAt(m.dataInizio, false), v1 = vitaAt(m.dataInizio, true);
+    html += '<div class="small" style="margin-top:8px;">Vita: '+(v0 ? fmtNum(v0.vita)+' cm ('+fmtDateIt(v0.date)+')'+(v1 && v1.date !== v0.date ? ' → '+fmtNum(v1.vita)+' cm ('+fmtDateIt(v1.date)+')' : '') : 'nessuna misura nella fase')+' · Sedute: '+sedutePhase()+'</div>';
+    var ms = mealsSummary(m.dataInizio, todayISO());
+    html += '<div class="small" style="margin-top:4px;">Pasti segnati: '+ms.segnati+' (da piano '+ms.piano+', liberi '+ms.liberi+', saltati '+ms.saltati+')</div>';
+    if(e.ok){
+      html += '<div class="small" style="margin-top:8px;"><strong>Mantenimento stimato: '+e.mant+' kcal</strong> — mangiato in media '+Math.round(e.intake)+' kcal, peso '+(e.rate <= 0 ? '' : '+')+fmtNum(Math.round(e.rate*100)/100)+' kg/settimana ('+fmtNum(Math.round(e.ratePct*1000)/10)+'%).</div>';
+      if(e.nonSegnati) html += '<div class="muted small">'+e.nonSegnati+' giorni senza pasti segnati, contati come da piano.</div>';
+      if(e.troppiLiberi) html += '<div class="muted small" style="color:#f2c14e;">'+e.troppiLiberi+' settimane con più di un pasto libero: la stima è meno affidabile.</div>';
+    } else {
+      html += '<div class="small" style="margin-top:8px;">Mantenimento non stimabile: '+e.motivo+'.</div>';
+    }
+    html += '<div class="field" style="margin-top:10px;"><label>Mantenimento da usare (kcal, modificabile)</label><input type="number" step="10" min="0" value="'+(wiz.mant || "")+'" data-act="wiz-field" data-field="mant"></div>';
+    html += '<div class="muted small">Stima con margine ampio: lo stesso deficit può dare cali molto diversi, per questo si ricontrolla a ogni punto.</div>';
+    html += '</div>';
+
+    html += '<div class="card"><h3 style="margin:0;">Analisi con l\'IA</h3>';
+    html += '<div class="muted small" style="margin-top:6px;">Copia il bilancio, incollalo in chat con Claude e incolla qui la risposta: la ritrovi al passo 2 e nello storico. Non cambia nulla da sola.</div>';
+    html += '<button class="btn" style="margin-top:10px;" data-act="wiz-copy-ai">Copia per l\'IA</button>';
+    if(wiz.aiText) html += '<textarea class="export-box" readonly id="wizAiText" style="margin-top:8px;">'+wiz.aiText.replace(/</g,"&lt;")+'</textarea>';
+    html += '<div class="field" style="margin-top:10px;"><label>Risposta dell\'IA</label><textarea class="export-box" id="wizAiAnswer" style="min-height:90px;font-family:inherit;font-size:14px;" placeholder="Incolla qui...">'+((wiz.aiRisposta||"").replace(/</g,"&lt;"))+'</textarea></div>';
+    html += '<button class="btn small" data-act="wiz-save-ai">Salva risposta</button>';
+    html += '</div>';
+  }
+
+  if(wiz.step === 2){
+    if(wiz.aiRisposta){
+      html += '<div class="card"><h3 style="margin:0;">Risposta dell\'IA</h3><div class="small" style="margin-top:6px;white-space:pre-wrap;">'+wiz.aiRisposta.replace(/</g,"&lt;")+'</div></div>';
+    }
+    var sug = suggestedNext();
+    html += '<div class="card"><h3 style="margin:0;">Cosa fare</h3>';
+    var opts = [["continua","Continua uguale","stessi target, nuova data di inizio"],["aggiusta","Aggiusta le calorie","±100-200 kcal se il ritmo reale si discosta da quello previsto"]];
+    Object.keys(PHASES).forEach(function(k){
+      var lab = PHASES[k].label;
+      if(k === "reverse") lab = "Reverse (gradino " + (m.obiettivo === "reverse" ? Math.min((m.reverseStep||1)+1,3) : 1) + ")";
+      opts.push([k, lab, {deficit:"mantenimento − deficit dal ritmo", mantenimento:"calorie al mantenimento, stesso piano", reverse:"+100 kcal rispetto a ora", surplus:"mantenimento + surplus dal ritmo"}[PHASES[k].tipo]]);
+    });
+    opts.forEach(function(o){
+      var on = wiz.scelta === o[0];
+      html += '<button class="btn'+(on?' primary':'')+'" style="margin-top:8px;text-align:left;" data-act="wiz-scelta" data-scelta="'+o[0]+'"><div>'+o[1]+(sug === o[0] ? ' · <span style="color:#f2c14e;">suggerita</span>' : '')+'</div><div class="small" style="font-weight:400;opacity:.8;">'+o[2]+'</div></button>';
+    });
+    if(m.obiettivo === "pausa") html += '<div class="muted small" style="margin-top:8px;">Dopo la pausa: riprendi il dimagrimento o passa al reverse.</div>';
+    html += '</div>';
+  }
+
+  if(wiz.step === 3){
+    var ph = PHASES[wiz.scelta];
+    html += '<div class="card"><h3 style="margin:0;">Ritmo e dati</h3>';
+    html += '<div class="field" style="margin-top:8px;"><div class="grid2">';
+    html += '<div><span class="small muted">Peso medio (kg)</span><input type="number" step="0.1" min="0" value="'+(wiz.peso || "")+'" data-act="wiz-field" data-field="peso"></div>';
+    html += '<div><span class="small muted">Sedute a settimana</span><input type="number" step="1" min="0" max="7" value="'+seduteSettimana()+'" data-act="set-body" data-field="sedute"></div>';
+    html += '</div></div>';
+    if(ph && (ph.tipo === "deficit" || ph.tipo === "surplus")){
+      var list = ph.tipo === "deficit" ? RITMI_DEFICIT : RITMI_SURPLUS;
+      var cur = wiz.ritmo || list[ph.tipo === "deficit" ? 0 : 1];
+      html += '<div class="small" style="margin-top:6px;">Ritmo ('+(ph.tipo === "deficit" ? "% del peso a settimana" : "% del peso al mese")+')</div><div class="btn-row" style="flex-wrap:wrap;margin-top:6px;">';
+      list.forEach(function(r){
+        html += '<button class="btn small'+(cur === r ? ' primary' : '')+'" style="width:auto;" data-act="wiz-ritmo" data-ritmo="'+r+'">'+fmtNum(r*100)+'%</button>';
+      });
+      html += '</div>';
+      html += '<div class="muted small" style="margin-top:6px;">'+(ph.tipo === "deficit" ? "Piramide: 0,5-1% a settimana (fino a 1,5% sopra il 19% di massa grassa). Default 0,5%, il più prudente per la massa magra." : "Piramide, intermedio: 0,5-1,5% al mese. Default 1%.")+'</div>';
+    }
+    html += '</div>';
+  }
+
+  if(wiz.step >= 4){
+    var p = wizProposal();
+    if(!p.ok){
+      html += '<div class="card"><div class="small">Non posso calcolare la proposta: '+p.motivo+'.</div></div>';
+    } else {
+      html += '<div class="card"><h3 style="margin:0;">'+(wiz.step === 4 ? 'Target e durata' : 'Riepilogo')+'</h3>';
+      html += '<div class="small" style="margin-top:6px;"><strong>'+(MESOCICLO_OBJ_LABELS[p.obiettivo] || p.obiettivo)+(p.reverseStep ? ' (gradino '+p.reverseStep+')' : '')+'</strong> · forma dal '+(PLAN_LABELS[p.piano] || p.piano)+'</div>';
+      html += '<table style="margin-top:8px;"><thead><tr><th></th><th>Riposo</th><th>Allenamento</th></tr></thead><tbody>';
+      [["kcal","Kcal",""],["prot","Proteine"," g"],["carb","Carboidrati"," g"],["grassi","Grassi"," g"]].forEach(function(r){
+        html += '<tr><td>'+r[1]+'</td><td>'+p.targets.riposo[r[0]]+r[2]+'</td><td>'+p.targets.allenamento[r[0]]+r[2]+'</td></tr>';
+      });
+      html += '</tbody></table>';
+      html += '<div class="small" style="margin-top:6px;">Media settimanale ('+seduteSettimana()+' sedute): '+Math.round(p.T)+' kcal/die'+(p.pctMant ? ' · '+Math.round(p.pctMant*100)+'% del mantenimento' : '')+(p.adj ? ' · aggiustamento '+(p.adj > 0 ? '+' : '')+p.adj+' kcal' : '')+'</div>';
+      if(p.fattore) html += '<div class="muted small">Fattore per il PDF di questa fase: '+fmtNum(Math.round(p.fattore*10000)/10000)+' (grammature del piano × fattore).</div>';
+      p.avvisi.forEach(function(a){ html += '<div class="small" style="margin-top:6px;color:#f2c14e;">⚠ '+a+'</div>'; });
+      if(wiz.step === 4){
+        html += '<div class="field" style="margin-top:10px;"><label>Durata (settimane)</label><input type="number" step="1" min="1" value="'+p.durata+'" data-act="wiz-field" data-field="durata"></div>';
+        html += '<div class="muted small">Prossimo punto: '+fmtDateIt(addWeeksToDate(todayISO(), p.durata))+'.</div>';
+      } else {
+        html += '<div class="small" style="margin-top:8px;">Durata '+p.durata+' settimane, da oggi al '+fmtDateIt(addWeeksToDate(todayISO(), p.durata))+'. Alla conferma la fase attuale va nello storico (con il bilancio e la risposta dell\'IA) e i nuovi target valgono da oggi.</div>';
+      }
+      html += '</div>';
+    }
+  }
+
+  html += '<div class="btn-row">';
+  html += '<button class="btn ghost" data-act="wiz-cancel">Annulla</button>';
+  if(wiz.step > 1) html += '<button class="btn" data-act="wiz-back">Indietro</button>';
+  if(wiz.step < 5) html += '<button class="btn primary" data-act="wiz-next"'+(wiz.step === 2 && !wiz.scelta ? ' disabled' : '')+'>Avanti</button>';
+  else html += '<button class="btn primary" data-act="wiz-confirm"'+(wizProposal().ok ? '' : ' disabled')+'>Conferma</button>';
+  html += '</div>';
+  return html;
+}
+function wizNextStep(){
+  if(wiz.step === 2){
+    var ph = PHASES[wiz.scelta];
+    wiz.durata = null;
+    wiz.step = (ph && ph.tipo !== "reverse") ? 3 : 4; // continua/aggiusta/reverse saltano ritmo e dati
+    return;
+  }
+  wiz.step = Math.min(5, wiz.step + 1);
+}
+function wizPrevStep(){
+  if(wiz.step === 4){
+    var ph = PHASES[wiz.scelta];
+    wiz.step = (ph && ph.tipo !== "reverse") ? 3 : 2;
+    return;
+  }
+  wiz.step = Math.max(1, wiz.step - 1);
+}
+
+/* ============================================================
    RENDER: ALIMENTAZIONE (tab "mealprep")
    ============================================================ */
 function renderMealPrep(){
   var el = document.getElementById("view-mealprep");
+  if(wiz){ el.innerHTML = wizHTML(); return; }
   var mt = computeMesocicloTargets();
   var html = '<div class="card"><h2 style="margin:0;">Alimentazione</h2>';
-  html += '<p class="small" style="margin-top:6px;">Il piano pasti, con tutte le opzioni e le grammature, è nel PDF <strong>"Piano nutrizionale per Marco"</strong>: giornata di riposo e giornata di allenamento.</p>';
-  html += '<p class="small muted" style="margin-top:6px;">Fase "'+(MESOCICLO_OBJ_LABELS[state.mesociclo.obiettivo]||state.mesociclo.obiettivo)+'": riposo '+mt.riposo.kcal+' kcal · allenamento '+mt.allenamento.kcal+' kcal.</p>';
+  html += '<p class="small" style="margin-top:6px;">Il piano pasti, con tutte le opzioni e le grammature, è nel PDF <strong>"Piano nutrizionale per Marco"</strong>.</p>';
+  html += '<p class="small muted" style="margin-top:6px;">Fase "'+phaseLabel()+'" fino al '+fmtDateIt(mesocicloFinePrevista())+': riposo '+mt.riposo.kcal+' kcal · allenamento '+mt.allenamento.kcal+' kcal.</p>';
+  html += '<button class="btn small" style="margin-top:6px;" data-act="wiz-open">Fai il punto / cambia fase</button>';
   html += '</div>';
+  html += pastiCardHTML();
   html += buildSaluteHTML();
   el.innerHTML = html;
 }
@@ -2031,38 +2369,38 @@ function renderImpostazioni(){
   html += '</div>';
 
   html += '<div class="card"><h2>Dati personali</h2>';
-  html += '<p class="small muted">L\'altezza serve per la stima della massa grassa (metodo a nastro).</p>';
+  html += '<p class="small muted">L\'altezza serve per la stima della massa grassa; le sedute a settimana per dividere le calorie fra giorni di riposo e di allenamento.</p>';
   html += '<div class="field"><div class="grid2">';
   html += '<div><span class="small muted">Altezza (cm)</span><input type="number" step="1" min="0" value="'+state.bodyConfig.altezza+'" data-act="set-body" data-field="altezza"></div>';
   html += '<div><span class="small muted">Età (anni)</span><input type="number" step="1" min="0" value="'+state.bodyConfig.eta+'" data-act="set-body" data-field="eta"></div>';
+  html += '<div><span class="small muted">Sedute di pesi a settimana</span><input type="number" step="1" min="1" max="7" value="'+seduteSettimana()+'" data-act="set-body" data-field="sedute"></div>';
   html += '</div></div></div>';
 
+  var mz = state.mesociclo;
   html += '<div class="card"><h2>Fase alimentare</h2>';
-  html += '<p class="small muted">I target di diario, Consulta e testo per l\'IA seguono la fase scelta qui. È indipendente dal ciclo di 5 settimane degli esercizi principali.</p>';
-  html += '<div class="field"><label>Fase attuale</label><div class="btn-row" style="flex-wrap:wrap;">';
-  Object.keys(PHASE_TARGETS).forEach(function(k){
-    var active = state.mesociclo.obiettivo === k;
-    html += '<button class="btn small'+(active?' primary':'')+'" style="width:auto;" data-act="set-obiettivo" data-obiettivo="'+k+'">'+MESOCICLO_OBJ_LABELS[k]+'</button>';
-  });
-  html += '</div></div>';
+  html += '<div class="small"><strong>'+phaseLabel()+'</strong>'+(mz.versione > 1 ? ' · versione '+mz.versione : '')+(mz.piano ? ' · forma dal '+(PLAN_LABELS[mz.piano]||mz.piano) : '')+'</div>';
   var mt = computeMesocicloTargets();
-  [["riposo"],["allenamento"]].forEach(function(k){
-    var t = mt[k[0]];
+  ["riposo","allenamento"].forEach(function(k){
+    var t = mt[k];
     html += '<div class="small" style="margin-top:6px;"><strong>'+t.label+'</strong> — '+t.kcal+' kcal / '+t.prot+'g prot / '+t.carb+'g carb / '+t.grassi+'g grassi</div>';
   });
-  if(state.mesociclo.obiettivo === "dimagrimento"){
-    html += '<p class="small muted" style="margin-top:8px;">Totali del piano in PDF: piano di base × 0,8977, rapporto tra il tuo metabolismo basale e quello della persona per cui il piano era scritto (Mifflin-St Jeor). Le kcal includono le fibre (~27 g), per questo proteine×4 + carboidrati×4 + grassi×9 dà circa 50 kcal in meno. Controllo: media del peso dopo 2-3 settimane di piano seguito.</p>';
-  } else {
-    html += '<p class="small muted" style="margin-top:8px;">Target fissi della ricomposizione (dieta.md), in uso fino al 20/10/2026.</p>';
-  }
-  var durata = state.mesociclo.durataSettimane || MESOCICLO_DURATA_DEFAULT[state.mesociclo.obiettivo] || 4;
-  var inizio = state.mesociclo.dataInizio || todayISO();
+  if(mz.mantenimento) html += '<div class="muted small" style="margin-top:6px;">Mantenimento usato: '+mz.mantenimento.kcal+' kcal ('+(mz.mantenimento.stimato ? 'stimato' : 'inserito')+' il '+fmtDateIt(mz.mantenimento.data)+')'+(mz.ritmo ? ' · ritmo '+fmtNum(mz.ritmo*100)+'%' : '')+(mz.fattorePdf ? ' · fattore PDF '+fmtNum(mz.fattorePdf) : '')+'</div>';
+  var durata = mz.durataSettimane || MESOCICLO_DURATA_DEFAULT[mz.obiettivo] || 4;
+  var inizio = mz.dataInizio || todayISO();
   html += '<div class="field" style="margin-top:10px;"><div class="grid2">';
   html += '<div><span class="small muted">Iniziata il</span><input type="date" value="'+inizio+'" data-act="set-mesociclo" data-field="dataInizio"></div>';
   html += '<div><span class="small muted">Durata (settimane)</span><input type="number" step="1" min="1" value="'+durata+'" data-act="set-mesociclo" data-field="durataSettimane"></div>';
   html += '</div>';
-  html += '<p class="small muted" style="margin-top:6px;">Fine prevista: <strong>'+fmtDateIt(addWeeksToDate(inizio, durata))+'</strong>. A quella data compare un promemoria per rivalutare; non cambia nulla da solo.</p>';
-  html += '</div></div>';
+  html += '<p class="small muted" style="margin-top:6px;">Prossimo punto: <strong>'+fmtDateIt(addWeeksToDate(inizio, durata))+'</strong>. Le fasi si cambiano dal wizard, che non decide nulla da solo.</p></div>';
+  html += '<button class="btn primary" data-act="wiz-open">Fai il punto / cambia fase</button>';
+  if(mz.storico && mz.storico.length){
+    html += '<div class="small" style="margin-top:12px;"><strong>Storico</strong></div>';
+    mz.storico.slice().reverse().forEach(function(h){
+      html += '<div class="small muted" style="margin-top:4px;">'+fmtDateIt(h.dataInizio)+' → '+(h.chiusura ? fmtDateIt(h.chiusura.data) : '—')+' · '+phaseLabel(h)+(h.targets ? ' · '+h.targets.riposo.kcal+'/'+h.targets.allenamento.kcal+' kcal' : '')+(h.chiusura && h.chiusura.stima && h.chiusura.stima.mant ? ' · mantenimento stimato '+h.chiusura.stima.mant : '')+'</div>';
+    });
+    html += '<button class="btn ghost small" style="margin-top:8px;" data-act="wiz-undo">Annulla l\'ultima conferma</button>';
+  }
+  html += '</div>';
 
   html += '<div class="card"><h2>Rotazione</h2>';
   html += '<p class="small">Prossima scheda proposta: <strong>'+nextSchedaId()+'</strong></p>';
@@ -2196,58 +2534,6 @@ document.addEventListener("click", function(e){
     bikeTipoInput = null;
     persistAll();
     render();
-  } else if(act === "meal-save-new"){
-    var mta = document.getElementById("mealTextInput");
-    saveNewMeal(mta ? mta.value : "");
-  } else if(act === "nutri-edit-open"){
-    openNutriEdit(t.getAttribute("data-id"));
-  } else if(act === "nutri-edit-type"){
-    if(nutriDraft){ nutriDraft.mealType = t.getAttribute("data-type"); render(); }
-  } else if(act === "nutri-edit-cancel"){
-    nutriDraft = null;
-    render();
-  } else if(act === "nutri-edit-save"){
-    saveNutriEdit();
-  } else if(act === "delete-nutri"){
-    e.stopPropagation();
-    if(confirm("Eliminare questo pasto?")){
-      var delId = t.getAttribute("data-id");
-      state.nutrition = state.nutrition.filter(function(n){ return n.id !== delId; });
-      if(nutriDraft && nutriDraft.id === delId) nutriDraft = null;
-      persistAll();
-      render();
-    }
-  } else if(act === "copy-diary"){
-    var days2 = parseInt(t.getAttribute("data-days"),10) || 1;
-    var diaryText = buildDiaryText(days2);
-    var box2 = document.getElementById("diaryTextBox");
-    if(box2){
-      box2.innerHTML = '<div class="field" style="margin-top:12px;"><label>Testo pronto da incollare in chat</label><textarea class="export-box" readonly id="diaryTextarea">'+diaryText.replace(/</g,"&lt;")+'</textarea><button class="btn small" style="margin-top:8px;" data-act="copy-diary-text">Copia negli appunti</button></div>';
-    }
-    var ta2 = document.getElementById("diaryTextarea");
-    if(ta2){
-      ta2.select();
-      if(navigator.clipboard && navigator.clipboard.writeText){
-        navigator.clipboard.writeText(diaryText).then(function(){ toast("Copiato ✓"); }).catch(function(){});
-      }
-    }
-  } else if(act === "copy-diary-text"){
-    var ta3 = document.getElementById("diaryTextarea");
-    if(ta3){
-      ta3.select();
-      if(navigator.clipboard && navigator.clipboard.writeText){
-        navigator.clipboard.writeText(ta3.value).then(function(){ toast("Copiato ✓"); }).catch(function(){ document.execCommand("copy"); toast("Copiato ✓"); });
-      } else {
-        document.execCommand("copy");
-        toast("Copiato ✓");
-      }
-    }
-  } else if(act === "apply-macro-paste"){
-    var mpi = document.getElementById("macroPasteInput");
-    var result = applyMacroPaste(mpi ? mpi.value : "");
-    macroPasteMessage = result.applied ? (result.applied + " pasto/i aggiornati ✓") : "Nessuna riga valida trovata (formato atteso: id|kcal|proteine|carbo|grassi).";
-    if(result.applied) toast("Macro applicati ✓");
-    render();
   } else if(act === "copy-training-analysis"){
     var tmode = t.getAttribute("data-mode");
     lastTrainingCopyMode = tmode;
@@ -2326,6 +2612,7 @@ document.addEventListener("click", function(e){
       localStorage.removeItem(LS.mesociclo);
       localStorage.removeItem(LS.partner);
       localStorage.removeItem(LS.shoppingChecked);
+      localStorage.removeItem(LS.pasti);
       state.exercises = JSON.parse(JSON.stringify(DEFAULT_EXERCISES));
       state.workouts = [];
       state.bodyweight = [];
@@ -2335,9 +2622,10 @@ document.addEventListener("click", function(e){
       state.cycleWeek = {};
       state.bikeRides = [];
       state.bodyConfig = {altezza: 168, eta: 38};
-      state.mesociclo = {obiettivo: "dimagrimento", dataInizio: todayISO(), durataSettimane: MESOCICLO_DURATA_DEFAULT.dimagrimento, pianoPdfMigrato: true};
+      state.mesociclo = {obiettivo: "dimagrimento", dataInizio: todayISO(), durataSettimane: MESOCICLO_DURATA_DEFAULT.dimagrimento, pianoPdfMigrato: true, targets: JSON.parse(JSON.stringify(DIMAGRIMENTO_TARGETS)), piano: "base", versione: 1, storico: []};
       LEGACY_KEYS.forEach(function(k){ state[k] = null; });
-      nutriDraft = null;
+      state.pasti = [];
+      wiz = null;
       logSession = null;
       toast("Dati cancellati");
       render();
@@ -2348,31 +2636,48 @@ document.addEventListener("click", function(e){
     var ckey = t.getAttribute("data-key");
     openConsulta[ckey] = !openConsulta[ckey];
     render();
-  } else if(act === "set-obiettivo"){
-    var newObiettivo = t.getAttribute("data-obiettivo");
-    if(newObiettivo === state.mesociclo.obiettivo) return;
-    // Nuova fase: riparte da oggi con la durata di default (entrambe editabili subito sotto).
-    state.mesociclo.obiettivo = newObiettivo;
-    state.mesociclo.dataInizio = todayISO();
-    state.mesociclo.durataSettimane = MESOCICLO_DURATA_DEFAULT[newObiettivo] || 4;
-    persistAll();
-    toast("Fase impostata: "+(MESOCICLO_OBJ_LABELS[newObiettivo]||newObiettivo)+" ✓");
+  } else if(act === "meal-day"){
+    var md = addDaysISO(mealDate || todayISO(), parseInt(t.getAttribute("data-delta"), 10));
+    if(md > todayISO()) md = todayISO();
+    mealDate = (md === todayISO()) ? null : md;
     render();
-  } else if(act === "restart-mesociclo"){
-    // "Continua" dal promemoria di fine fase: stessa fase e durata, riparte solo la data.
-    state.mesociclo.dataInizio = todayISO();
-    persistAll();
+  } else if(act === "meal-set"){
+    setPasto(t.getAttribute("data-date"), t.getAttribute("data-pasto"), t.getAttribute("data-esito"), t.getAttribute("data-fonte"));
     render();
+  } else if(act === "wiz-open"){
+    wizOpen();
+  } else if(act === "wiz-cancel"){
+    wiz = null;
+    render();
+  } else if(act === "wiz-next"){
+    if(wiz){ wizNextStep(); render(); window.scrollTo(0, 0); }
+  } else if(act === "wiz-back"){
+    if(wiz){ wizPrevStep(); render(); window.scrollTo(0, 0); }
+  } else if(act === "wiz-scelta"){
+    if(wiz){ wiz.scelta = t.getAttribute("data-scelta"); wiz.ritmo = null; wiz.durata = null; render(); }
+  } else if(act === "wiz-ritmo"){
+    if(wiz){ wiz.ritmo = parseFloat(t.getAttribute("data-ritmo")); render(); }
+  } else if(act === "wiz-copy-ai"){
+    if(wiz){
+      wiz.aiText = buildPhaseAIText();
+      render();
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(wiz.aiText).then(function(){ toast("Copiato ✓"); }).catch(function(){ var ta = document.getElementById("wizAiText"); if(ta) ta.select(); });
+      }
+    }
+  } else if(act === "wiz-save-ai"){
+    var wa = document.getElementById("wizAiAnswer");
+    if(wiz && wa){ wiz.aiRisposta = wa.value.trim() || null; toast(wiz.aiRisposta ? "Risposta salvata ✓" : "Risposta tolta"); render(); }
+  } else if(act === "wiz-confirm"){
+    if(wiz) wizConfirm();
+  } else if(act === "wiz-undo"){
+    if(confirm("Annullare l'ultima conferma e tornare alla fase precedente?")) wizUndo();
   }
 });
 
 document.addEventListener("change", function(e){
   var t = e.target;
-  if(t.getAttribute && t.getAttribute("data-act") === "nutri-edit-date"){
-    if(nutriDraft){ nutriDraft.date = t.value || todayISO(); render(); }
-  } else if(t.getAttribute && t.getAttribute("data-act") === "nutri-edit-text"){
-    if(nutriDraft){ nutriDraft.text = t.value; }
-  } else if(t.getAttribute && t.getAttribute("data-act") === "set-date"){
+  if(t.getAttribute && t.getAttribute("data-act") === "set-date"){
     if(logSession){ logSession.date = t.value || todayISO(); persistLogDraft(); render(); }
   } else if(t.getAttribute && t.getAttribute("data-act") === "ex-nota"){
     if(logSession){
@@ -2429,6 +2734,17 @@ document.addEventListener("change", function(e){
       persistAll();
       toast("Recupero aggiornato");
     }
+  } else if(t.getAttribute && t.getAttribute("data-act") === "meal-nota"){
+    var en = pastoOf(t.getAttribute("data-date"), t.getAttribute("data-pasto"));
+    if(en){ if(t.value.trim()) en.nota = t.value.trim(); else delete en.nota; persistAll(); }
+  } else if(t.getAttribute && t.getAttribute("data-act") === "wiz-field"){
+    if(wiz){
+      var wf = t.getAttribute("data-field"), wv = parseFloat(String(t.value).replace(",", "."));
+      if(wf === "mant") wiz.mant = (isNaN(wv) || wv <= 0) ? null : Math.round(wv);
+      if(wf === "peso") wiz.peso = (isNaN(wv) || wv <= 0) ? null : wv;
+      if(wf === "durata") wiz.durata = (isNaN(wv) || wv < 1) ? null : Math.round(wv);
+      render();
+    }
   } else if(t.getAttribute && t.getAttribute("data-act") === "set-mesociclo"){
     var mField = t.getAttribute("data-field");
     if(mField === "dataInizio"){
@@ -2443,6 +2759,7 @@ document.addEventListener("change", function(e){
   } else if(t.getAttribute && t.getAttribute("data-act") === "set-body"){
     var bField = t.getAttribute("data-field");
     var bVal = parseFloat(String(t.value).replace(",", "."));
+    if(bField === "sedute" && !isNaN(bVal)) bVal = Math.max(1, Math.min(7, Math.round(bVal)));
     if(!isNaN(bVal) && bVal > 0){
       state.bodyConfig[bField] = bVal;
       persistAll();
@@ -2474,6 +2791,7 @@ document.addEventListener("change", function(e){
         if(data.bikeRides) state.bikeRides = data.bikeRides;
         if(data.bodyConfig) state.bodyConfig = data.bodyConfig;
         if(data.mesociclo) state.mesociclo = data.mesociclo;
+        if(data.pasti) state.pasti = data.pasti;
         LEGACY_KEYS.forEach(function(k){
           if(data[k] !== undefined && data[k] !== null){ state[k] = data[k]; saveJSON(LS[k], data[k]); }
         });
