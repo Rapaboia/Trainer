@@ -1622,7 +1622,7 @@ function buildSaluteHTML(){
 
   html += '<hr class="sep" style="margin:16px 0;">';
   html += '<div class="small muted">Circonferenze (opzionale — per stimare la massa grassa)</div>';
-  html += '<p class="small muted" style="margin-top:4px;">Misura al mattino, a digiuno, prima di mangiare/bere: vita all\'altezza dell\'ombelico, collo appena sotto il pomo d\'Adamo. Lascia vuoto se oggi non le misuri.</p>';
+  html += '<p class="small muted" style="margin-top:4px;">Una volta a settimana, al mattino: vita all\'altezza dell\'ombelico, metro orizzontale a fine espirazione; collo subito sotto il pomo d\'Adamo, metro leggermente inclinato in basso sul davanti. Le misure di vita prima del 23/10/2026 erano sotto l\'ombelico: non confrontabili. Lascia vuoto se oggi non le misuri.</p>';
   html += '<div class="grid2" style="margin-top:8px;">';
   html += '<div><span class="small muted">Vita (cm)</span><input type="number" step="0.5" min="0" value="'+vitaInput+'" data-act="set-circ" data-field="vita"></div>';
   html += '<div><span class="small muted">Collo (cm)</span><input type="number" step="0.5" min="0" value="'+colloInput+'" data-act="set-circ" data-field="collo"></div>';
@@ -2002,8 +2002,12 @@ function estimateMaintenance(){
   res.w2 = w2; res.wl = wl;
   return res;
 }
+// Dal 2026-10-23 Marco misura la vita all'ombelico (metodo US Navy); prima la misurava sotto l'ombelico.
+// Le misure precedenti non sono confrontabili e si escludono dai confronti di vita.
+var VITA_OMBELICO_DAL = "2026-10-23";
 function vitaAt(fromDate, last){
-  var v = state.bodyweight.filter(function(b){ return b.vita && b.date >= fromDate; }).sort(function(a, b){ return a.date < b.date ? -1 : 1; });
+  var from = fromDate > VITA_OMBELICO_DAL ? fromDate : VITA_OMBELICO_DAL;
+  var v = state.bodyweight.filter(function(b){ return b.vita && b.date >= from; }).sort(function(a, b){ return a.date < b.date ? -1 : 1; });
   if(!v.length) return null;
   return last ? v[v.length - 1] : v[0];
 }
@@ -2147,6 +2151,7 @@ function buildPhaseAIText(){
   var v0 = vitaAt(m.dataInizio, false), v1 = vitaAt(m.dataInizio, true);
   if(v0) L.push("Vita: " + fmtNum(v0.vita) + " cm il " + fmtDateIt(v0.date) + (v1 && v1.date !== v0.date ? ", " + fmtNum(v1.vita) + " cm il " + fmtDateIt(v1.date) : "") + (v1 && v1.bf != null ? "; massa grassa stimata (metodo a nastro) " + fmtNum(v1.bf) + "%" : "") + ".");
   else L.push("Vita: nessuna misura nella fase.");
+  L.push("Nota: dal " + fmtDateIt(VITA_OMBELICO_DAL) + " la vita si misura all'ombelico e il collo sotto il pomo d'Adamo (metodo US Navy); le misure di vita precedenti erano sotto l'ombelico e non sono confrontabili, quindi sono escluse.");
   L.push("");
   L.push("Pasti segnati per settimana:");
   ws.concat([{i: ws.length, from: addDaysISO(m.dataInizio, ws.length * 7), to: todayISO(), parziale: true}]).forEach(function(w){
