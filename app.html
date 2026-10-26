@@ -875,7 +875,7 @@ function cycleStatusText(){
   return "Prossima seduta di ciascun esercizio principale: " + parts.join("; ") + ".";
 }
 function trainingRulesText(){
-  return "Programma: due schede full body a rotazione, A (squat, panca piana) nella prima seduta della settimana e B (dips zavorrate, leg press a 2-3 rip di riserva prima del weekend in bici) nella seconda. Regole di progressione (Project Invictus): esercizi principali (panca piana, squat, dips zavorrate) — Progressione Lineare di Carico, ciclo di 5 settimane, serie fisse (4x, 2x in scarico), solo le rip scendono mentre il carico sale in base al %1RM stimato (sett.1 4x8@73%, sett.2 4x6@78%, sett.3 4x5@82%, sett.4 4x3@88%, sett.5 scarico 2x3@85%); il carico in kg è ricavato dal massimale stimato con Epley dallo storico (serie più pesante mai registrata, valida perché si allena a cedimento vero); per le dips il massimale è sul carico totale (peso corporeo + zavorra) e la zavorra suggerita = carico totale della settimana − peso corporeo attuale. Esercizi accessori (range di ripetizioni), RPE 8,5-10 (0-1 rip di riserva) — si sale prima con le ripetizioni fino al limite alto del range, si aggiunge carico solo quando TUTTE le serie chiudono al limite alto, poi si riparte dal limite basso. Leg raise (isolamento/finisher) può arrivare a RPE 10/cedimento tecnico, ginocchia a 90° per limiti di flessibilità, progressione prima con le ripetizioni poi con zavorra ai piedi. Deload ogni ~5 settimane: nella settimana di scarico i principali fanno 2x3 @85%, gli accessori metà delle serie (arrotondata per eccesso) con gli stessi carichi. Fase alimentare attuale: " + phaseLabel() + ".";
+  return "Programma: due schede full body a rotazione, A (squat, panca piana) nella prima seduta della settimana e B (dips zavorrate, leg press a 2-3 rip di riserva prima del weekend in bici) nella seconda. Regole di progressione (Project Invictus): esercizi principali (panca piana, squat, dips zavorrate) — Progressione Lineare di Carico, ciclo di 5 settimane, serie fisse (4x, 2x in scarico), solo le rip scendono mentre il carico sale in base al %1RM stimato (sett.1 4x8@73%, sett.2 4x6@78%, sett.3 4x5@82%, sett.4 4x3@88%, sett.5 scarico 2x3@85%); il carico in kg è ricavato dal massimale stimato con Epley dallo storico (serie più pesante mai registrata, valida perché si allena a cedimento vero); per le dips il massimale è sul carico totale (peso corporeo + zavorra) e la zavorra suggerita = carico totale della settimana − peso corporeo attuale. Esercizi accessori (range di ripetizioni), RPE 8,5-10 (0-1 rip di riserva) — si sale prima con le ripetizioni fino al limite alto del range, si aggiunge carico solo quando TUTTE le serie chiudono al limite alto, poi si riparte dal limite basso. Leg raise (isolamento/finisher) può arrivare a RPE 10/cedimento tecnico, ginocchia a 90° per limiti di flessibilità, progressione prima con le ripetizioni poi con zavorra ai piedi. Deload ogni ~5 settimane: nella settimana di scarico i principali fanno 2x3 @85%, gli accessori metà delle serie (arrotondata per eccesso) con gli stessi carichi. Deload reattivo (Piramide): a fine seduta l'app chiede voglia di allenarsi, sonno, stress, prestazione e fastidi; se 2 sedute di fila hanno ciascuna almeno 2 segnali di affaticamento propone di anticipare lo scarico. Registra anche la pancia all'arrivo (gonfiore), solo come dato da incrociare. Fase alimentare attuale: " + phaseLabel() + ".";
 }
 function buildSessionAnalysisText(){
   var list = sortedWorkoutsAsc();
@@ -884,6 +884,8 @@ function buildSessionAnalysisText(){
   var scheda = schedaOf(w.scheda, w.programma);
   var lines = [];
   lines.push("Analisi ultima seduta — " + fmtDateIt(w.date) + " — Scheda " + w.scheda + " (" + scheda.name + ")" + (w.variant ? " [variante]" : ""));
+  var fbS = feedbackParts(w.feedback);
+  if(fbS.length) lines.push("Feedback di fine seduta: " + fbS.join("; ") + (w.feedback.nota ? '; nota: "' + w.feedback.nota + '"' : "") + ".");
   lines.push(trainingRulesText());
   lines.push(cycleStatusText());
   lines.push("");
@@ -917,6 +919,8 @@ function buildWeekAnalysisText(days){
     list.forEach(function(w){
       var scheda = schedaOf(w.scheda, w.programma);
       lines.push(fmtDateIt(w.date) + " — Scheda " + w.scheda + " (" + scheda.name + ")" + (w.variant ? " [variante]" : ""));
+      var fbW = feedbackParts(w.feedback);
+      if(fbW.length) lines.push("  Feedback: " + fbW.join("; ") + (w.feedback.nota ? '; nota: "' + w.feedback.nota + '"' : ""));
       w.exercises.forEach(function(e){ lines.push("  - " + exerciseLine(e.id, e.sets, e.cycleWeek)); });
       lines.push("");
     });
@@ -1246,8 +1250,55 @@ function saveLogDraftManual(){
   toast("Progresso salvato ✓");
 }
 
-// Mini-feedback di fine seduta: tutto facoltativo, solo registrato, non cambia piano o carichi.
-var FEEDBACK_FIELDS = ["esito","energia","difficolta","recupero","dolore","doloreZona","doloreZonaAltro","aderenza","nota"];
+// Feedback di fine seduta (dal 2026-10-26): i cinque segnali del deload reattivo della Piramide
+// (voglia, sonno, stress, prestazione, fastidi; red = risposta "rossa") più la pancia all'arrivo.
+// Facoltativo, non cambia carichi né piano: serve all'avviso di scarico anticipato e al testo per l'IA.
+// Le domande vecchie (esito, energia, difficoltà, recupero, dolore, aderenza) restano nelle sedute già salvate.
+var FEEDBACK_QUESTIONS = [
+  {k:"voglia", label:"Voglia di allenarti oggi", opts:[["TANTA","Tanta"],["NORMALE","Normale"],["POCA","Poca"]], red:"POCA"},
+  {k:"sonno", label:"Sonno della notte prima", opts:[["BUONO","Buono"],["NORMALE","Normale"],["SCARSO","Scarso"]], red:"SCARSO"},
+  {k:"stress", label:"Stress della giornata", opts:[["BASSO","Basso"],["NORMALE","Normale"],["ALTO","Alto"]], red:"ALTO"},
+  {k:"prestazione", label:"Prestazione (carichi e ripetizioni)", opts:[["MEGLIO","Meglio del solito"],["SOLITO","Come al solito"],["PEGGIO","Peggio"]], red:"PEGGIO"},
+  {k:"fastidi", label:"Dolori o fastidi", opts:[["NESSUNO","Nessuno"],["SOLITO","Come al solito"],["PEGGIO","Peggio del solito"]], red:"PEGGIO"},
+  {k:"pancia", label:"Pancia all'arrivo", opts:[["SGONFIA","Sgonfia"],["UN_PO","Un po' gonfia"],["MOLTO","Molto gonfia"]]}
+];
+var FEEDBACK_OLD_LABELS = {esito:"Esito", energia:"Energia", difficolta:"Difficoltà", recupero:"Recupero", dolore:"Dolore", aderenza:"Aderenza"};
+var FEEDBACK_FIELDS = ["voglia","sonno","stress","prestazione","fastidi","pancia","esito","energia","difficolta","recupero","dolore","doloreZona","doloreZonaAltro","aderenza","nota"];
+var DELOAD_SEGNALI_MIN = 2;   // Piramide: 2 o più "sì" → considerare lo scarico
+var DELOAD_SEDUTE_DI_FILA = 2; // scelta pratica: due sedute di fila, per non reagire a una giornata storta
+function redSignals(fb){
+  if(!fb) return [];
+  return FEEDBACK_QUESTIONS.filter(function(q){ return q.red && fb[q.k] === q.red; });
+}
+function feedbackZonaLabel(fb){
+  if(!fb || !fb.doloreZona) return "";
+  if(fb.doloreZona === "altro") return fb.doloreZonaAltro || "altro";
+  return (state.exercises[fb.doloreZona] && state.exercises[fb.doloreZona].name) || fb.doloreZona;
+}
+// Riassunto leggibile del feedback di una seduta (domande nuove e, per le sedute vecchie, quelle di prima).
+function feedbackParts(fb){
+  var parts = [];
+  if(!fb) return parts;
+  FEEDBACK_QUESTIONS.forEach(function(q){
+    if(!fb[q.k]) return;
+    var o = q.opts.filter(function(x){ return x[0] === fb[q.k]; })[0];
+    parts.push(q.label + ": " + (o ? o[1] : fb[q.k]));
+  });
+  Object.keys(FEEDBACK_OLD_LABELS).forEach(function(k){ if(fb[k]) parts.push(FEEDBACK_OLD_LABELS[k] + ": " + fb[k]); });
+  var z = feedbackZonaLabel(fb);
+  if(z) parts.push("Zona: " + z);
+  return parts;
+}
+// Avviso di scarico anticipato: le ultime sedute di fila hanno ciascuna almeno 2 segnali rossi.
+function deloadWarningSessions(){
+  var list = sortedWorkoutsAsc();
+  if(list.length < DELOAD_SEDUTE_DI_FILA) return null;
+  var last = list.slice(-DELOAD_SEDUTE_DI_FILA);
+  var all = last.every(function(w){ return redSignals(w.feedback).length >= DELOAD_SEGNALI_MIN; });
+  // Se una di queste sedute era già di scarico, l'avviso non serve.
+  var hadDeload = last.some(function(w){ return w.exercises.some(function(e){ return e.cycleWeek === 5; }); });
+  return (all && !hadDeload) ? last : null;
+}
 function cleanFeedback(fb){
   if(!fb) return undefined;
   var out = {};
@@ -1374,7 +1425,7 @@ function setFeedbackField(field, value){
   if(!logSession) return;
   if(!logSession.feedback) logSession.feedback = {};
   logSession.feedback[field] = value;
-  if(field === "dolore" && value === "NESSUNO"){
+  if((field === "dolore" || field === "fastidi") && value === "NESSUNO"){
     delete logSession.feedback.doloreZona;
     delete logSession.feedback.doloreZonaAltro;
   }
@@ -1478,6 +1529,11 @@ function renderOggi(){
 
   var html = "";
   html += nextPhaseSuggestionHTML();
+  var warnS = deloadWarningSessions();
+  if(warnS && !isDeloadSession(nextScheda.exercises)){
+    html += '<div class="card"><div class="suggestion hold"><strong>Valuta lo scarico anticipato.</strong> Nelle ultime '+warnS.length+' sedute hai segnato almeno '+DELOAD_SEGNALI_MIN+' segnali di affaticamento ciascuna: '+warnS.map(function(w){ return fmtDateIt(w.date)+' ('+redSignals(w.feedback).map(function(q){ var o = q.opts.filter(function(x){ return x[0] === q.red; })[0]; return q.label.split(" (")[0].toLowerCase()+' '+o[1].toLowerCase(); }).join(", ")+')'; }).join("; ")+'. Decidi tu: se lo fai, l\'app porta i principali alla settimana di scarico e poi il ciclo riparte dalla 1.</div>';
+    html += '<button class="btn small" style="margin-top:10px;" data-act="deload-now">Fai lo scarico adesso</button></div>';
+  }
   html += '<div class="card">';
   html += '<div class="muted small">Prossima seduta suggerita</div>';
   html += '<h2 style="font-size:22px;margin-top:2px;">Scheda '+nextId+' — '+nextScheda.name+'</h2>';
@@ -1552,15 +1608,14 @@ function renderFeedbackFormHTML(){
   var fb = logSession.feedback || {};
   var html = "";
   html += '<div class="card"><h2 style="margin:0;">Chiudi seduta — mini feedback</h2>';
-  html += '<p class="small muted" style="margin-top:6px;">Scheda '+logSession.schedaId+' — '+scheda.name+' · '+fmtDateIt(logSession.date)+'. Tutti i campi sono facoltativi: servono solo per consultazione futura, non modificano piano/carichi/calorie/macro/fase.</p>';
+  html += '<p class="small muted" style="margin-top:6px;">Scheda '+logSession.schedaId+' — '+scheda.name+' · '+fmtDateIt(logSession.date)+'. Tutto facoltativo, un tocco per domanda. Le risposte non cambiano carichi né piano: servono all\'avviso di scarico anticipato ('+DELOAD_SEDUTE_DI_FILA+' sedute di fila con almeno '+DELOAD_SEGNALI_MIN+' segnali di affaticamento) e al testo per l\'IA.</p>';
   html += '</div>';
   html += '<div class="card">';
-  html += feedbackBtnGroup("Esito generale", "esito", [["COMPLETA","Completa"],["PARZIALE","Parziale"],["NON_COMPLETATA","Non completata"]]);
-  html += feedbackBtnGroup("Energia prima della seduta", "energia", [["BASSA","Bassa"],["MEDIA","Media"],["ALTA","Alta"]]);
-  html += feedbackBtnGroup("Difficoltà complessiva percepita", "difficolta", [["FACILE","Facile"],["GIUSTA","Giusta"],["DIFFICILE","Difficile"]]);
-  html += feedbackBtnGroup("Recupero percepito", "recupero", [["SCARSO","Scarso"],["NELLA_NORMA","Nella norma"],["BUONO","Buono"]]);
-  html += feedbackBtnGroup("Dolore/fastidio", "dolore", [["NESSUNO","Nessuno"],["LIEVE","Lieve"],["MODERATO","Moderato"],["IMPORTANTE","Importante"]]);
-  if(fb.dolore && fb.dolore !== "NESSUNO"){
+  FEEDBACK_QUESTIONS.forEach(function(q){
+    if(q.k === "pancia") return;
+    html += feedbackBtnGroup(q.label, q.k, q.opts);
+  });
+  if((fb.fastidi && fb.fastidi !== "NESSUNO") || (fb.dolore && fb.dolore !== "NESSUNO")){
     var zonaOpts = logSession.exIds.map(function(exId){ return [exId, state.exercises[exId].name]; });
     zonaOpts.push(["altro","Altro"]);
     html += feedbackBtnGroup("Zona o esercizio interessato", "doloreZona", zonaOpts);
@@ -1568,7 +1623,8 @@ function renderFeedbackFormHTML(){
       html += '<div class="field"><label>Specifica zona</label><input type="text" value="'+((fb.doloreZonaAltro||"").replace(/"/g,"&quot;"))+'" data-act="feedback-zona-altro" placeholder="es. ginocchio destro"></div>';
     }
   }
-  html += feedbackBtnGroup("Aderenza al piano", "aderenza", [["SI","Sì"],["PARZIALMENTE","Parzialmente"],["NO","No"]]);
+  var qPancia = FEEDBACK_QUESTIONS.filter(function(q){ return q.k === "pancia"; })[0];
+  html += feedbackBtnGroup(qPancia.label, qPancia.k, qPancia.opts);
   html += '<div class="field"><label>Nota facoltativa</label><textarea class="export-box" style="min-height:60px;font-family:inherit;font-size:15px;" data-act="feedback-nota" placeholder="Qualsiasi altra cosa da ricordare...">'+((fb.nota||"").replace(/</g,"&lt;"))+'</textarea></div>';
   html += '</div>';
   html += '<div class="btn-row">';
@@ -1637,15 +1693,7 @@ function buildRegistroHTML(){
       });
       html += '</tbody></table>';
       if(w.feedback){
-        var fbParts = [];
-        var FB_LABELS = {esito:"Esito",energia:"Energia",difficolta:"Difficoltà",recupero:"Recupero",dolore:"Dolore",aderenza:"Aderenza"};
-        ["esito","energia","difficolta","recupero","dolore","aderenza"].forEach(function(k){
-          if(w.feedback[k]) fbParts.push(FB_LABELS[k]+": "+w.feedback[k]);
-        });
-        if(w.feedback.dolore && w.feedback.dolore !== "NESSUNO" && w.feedback.doloreZona){
-          var zonaLbl = w.feedback.doloreZona === "altro" ? (w.feedback.doloreZonaAltro || "altro") : ((state.exercises[w.feedback.doloreZona] && state.exercises[w.feedback.doloreZona].name) || w.feedback.doloreZona);
-          fbParts.push("Zona: "+zonaLbl);
-        }
+        var fbParts = feedbackParts(w.feedback);
         if(fbParts.length) html += '<div class="small muted" style="margin-top:8px;">'+fbParts.join(" · ")+'</div>';
         if(w.feedback.nota) html += '<div class="small" style="margin-top:4px;">"'+w.feedback.nota.replace(/</g,"&lt;")+'"</div>';
       }
@@ -2635,6 +2683,13 @@ document.addEventListener("click", function(e){
 
   if(act === "start-log"){
     startLog(t.getAttribute("data-scheda"));
+  } else if(act === "deload-now"){
+    if(confirm("Portare squat, panca e dips alla settimana di scarico? Le prossime sedute saranno di scarico, poi il ciclo riparte dalla settimana 1.")){
+      Object.keys(state.exercises).forEach(function(id){ if(state.exercises[id].kind === "principal") state.cycleWeek[id] = 5; });
+      persistAll();
+      toast("Scarico impostato");
+      render();
+    }
   } else if(act === "swap-ex"){
     swapExercise(t.getAttribute("data-ex"));
   } else if(act === "cancel-log"){
