@@ -367,7 +367,13 @@ var DEFAULT_EXERCISES = {
   double_row_panca_inclinata: {name:"Double row panca inclinata", kind:"range", lo:6,  hi:8,  inc:2.5,  unit:"kg", defSets:3, rest:120},
   push_down:           {name:"Push down al cavo alto",        kind:"range",     lo:8,  hi:10, inc:2.5,  unit:"kg", defSets:3, rest:120},
   french_press:        {name:"French press bilanciere EZ",    kind:"range",     lo:8,  hi:10, inc:2.5,  unit:"kg", defSets:3, rest:120},
-  face_pull:           {name:"Face pull al cavo (corda)",      kind:"range",     lo:12, hi:15, inc:2.5,  unit:"kg", defSets:3, rest:60}
+  face_pull:           {name:"Face pull al cavo (corda)",      kind:"range",     lo:12, hi:15, inc:2.5,  unit:"kg", defSets:3, rest:60},
+  // Dal programma full body A/B (2026-10-24): spalle scelte da Marco, più le alternative se la panca o la macchina è occupata.
+  shoulder_press_macchina:   {name:"Shoulder press alla macchina",          kind:"range", lo:8,  hi:10, inc:2.5, unit:"kg", defSets:3, rest:120},
+  alzate_laterali_panca:     {name:"Alzate laterali a petto appoggiato",    kind:"range", lo:10, hi:12, inc:1,   unit:"kg", defSets:3, rest:90},
+  aperture_posteriori_panca: {name:"Aperture posteriori a petto appoggiato", kind:"range", lo:12, hi:15, inc:1,   unit:"kg", defSets:3, rest:60},
+  alzate_laterali_macchina:  {name:"Alzate laterali alla macchina",         kind:"range", lo:10, hi:12, inc:2.5, unit:"kg", defSets:3, rest:90},
+  reverse_pec_deck:          {name:"Reverse pec deck",                      kind:"range", lo:12, hi:15, inc:2.5, unit:"kg", defSets:3, rest:60}
 };
 
 // Progressione Lineare di Carico (Project Invictus, vedi programma.md). pct = %1RM della settimana,
@@ -380,13 +386,78 @@ var WEEK_SCHEME = [
   {week:5, sets:2, reps:3, pct:0.85, rpe:"scarico — riduci se la settimana 4 è stata dura", deload:true}
 ];
 
-var SCHEDE = {
+// Programma 1 (fino al passaggio al full body): tre schede a rotazione. Resta per leggere le sedute vecchie.
+var SCHEDE_V1 = {
   A: {name:"Petto e Dorso", exercises:["panca_piana","chest_press","trazioni","pulley_basso","bayesan_curl","curl_manubri_seduto","leg_raise"]},
   B: {name:"Gambe e Spalle", exercises:["squat","leg_press","calf_raise","lento_avanti","alzate_laterali","face_pull"]},
   C: {name:"Spinta e Tricipiti", exercises:["dips_zavorrate","croci_cavi","double_row_panca_inclinata","push_down","french_press","leg_raise"]}
 };
 
-var ROTATION_SEQUENCE = ["A","B","C"];
+// Programma 2 (full body, dal 2026-10-24, versione corta ~1h a seduta, programma.md): A nella prima seduta della settimana, B nella seconda.
+// rest = recupero dentro la scheda (0 = subito all'esercizio dopo: superserie e circuito), notes = indicazioni,
+// alt = alternativa se l'attrezzo è occupato (ogni esercizio tiene il suo storico).
+var SCHEDE = {
+  A: {name:"Squat e Panca",
+      exercises:["squat","panca_piana","trazioni","shoulder_press_macchina","bayesan_curl","push_down"],
+      rest:{trazioni:0, shoulder_press_macchina:120, bayesan_curl:0, push_down:90},
+      notes:{
+        squat:"Prima seduta della settimana: le gambe pesanti stanno lontane dall'uscita in bici del weekend.",
+        trazioni:"Superserie con la shoulder press: finita la serie passa subito alla shoulder press.",
+        shoulder_press_macchina:"Superserie con le trazioni: dopo la coppia 2' di recupero.",
+        bayesan_curl:"Superserie con il push down: finita la serie passa subito al push down.",
+        push_down:"Superserie con il bayesan curl: dopo la coppia 1'30\" di recupero."
+      },
+      alt:{shoulder_press_macchina:{id:"lento_avanti", quando:"Macchina occupata"}}},
+  B: {name:"Dips e Tirate",
+      exercises:["dips_zavorrate","leg_press","double_row_panca_inclinata","alzate_laterali_panca","aperture_posteriori_panca","calf_raise","leg_raise"],
+      rest:{double_row_panca_inclinata:0, alzate_laterali_panca:0, aperture_posteriori_panca:120},
+      notes:{
+        leg_press:"2-3 rip di riserva e non sotto il parallelo: gambe fresche per la bici nel weekend.",
+        double_row_panca_inclinata:"Circuito sulla panca inclinata (1/3): passa subito alle alzate laterali.",
+        alzate_laterali_panca:"Circuito (2/3): braccia di lato verso la testa, gomiti fino all'altezza delle spalle. Poi subito le aperture.",
+        aperture_posteriori_panca:"Circuito (3/3): braccia a T, perpendicolari al busto; spingi verso l'esterno senza stringere le scapole. Poi 2' e riparti dal rematore."
+      },
+      alt:{
+        double_row_panca_inclinata:{id:"pulley_basso", quando:"Panca occupata"},
+        alzate_laterali_panca:{id:"alzate_laterali_macchina", quando:"Panca occupata"},
+        aperture_posteriori_panca:{id:"reverse_pec_deck", quando:"Panca occupata"}
+      }}
+};
+
+var ROTATION_SEQUENCE = ["A","B"];
+var PROGRAMMA_ATTUALE = 2;
+
+// Scheda di una seduta: le sedute senza "programma" sono del programma 1 (A/B/C).
+function schedaOf(id, programma){
+  var set = programma === 2 ? SCHEDE : SCHEDE_V1;
+  return set[id] || {name: "scheda " + id, exercises: []};
+}
+// Esercizio della scheda da cui deriva un'alternativa (per note e recuperi), o l'esercizio stesso.
+function primaryOf(sch, exId){
+  var alt = (sch && sch.alt) || {};
+  for(var k in alt){ if(alt[k].id === exId) return k; }
+  return exId;
+}
+// Pulsante di scambio: dall'esercizio della scheda all'alternativa e ritorno.
+function altFor(sch, exId){
+  var alt = (sch && sch.alt) || {};
+  if(alt[exId]) return {id: alt[exId].id, label: alt[exId].quando + "? Passa a " + state.exercises[alt[exId].id].name};
+  var k = primaryOf(sch, exId);
+  if(k !== exId) return {id: k, label: "Torna a " + state.exercises[k].name};
+  return null;
+}
+function noteFor(sch, exId){
+  var n = (sch && sch.notes) || {};
+  return n[exId] || n[primaryOf(sch, exId)] || "";
+}
+function restFor(sch, exId){
+  var r = (sch && sch.rest) || {};
+  var k = primaryOf(sch, exId);
+  if(r[exId] != null) return r[exId];
+  if(r[k] != null) return r[k];
+  return state.exercises[exId].rest;
+}
+function restText(sec){ return sec === 0 ? "subito all'esercizio dopo" : formatRest(sec); }
 
 /* ============================================================
    STORAGE
@@ -409,7 +480,8 @@ var LS = {
   mesociclo: "pp_mesociclo_v1",
   partner: "pp_partner_v1",
   shoppingChecked: "pp_shopping_checked_v1",
-  pasti: "pp_pasti_v1"
+  pasti: "pp_pasti_v1",
+  programma: "pp_programma_v1"
 };
 
 /* ============================================================
@@ -566,6 +638,7 @@ var state = {
   bodyConfig: loadJSON(LS.bodyConfig, {altezza: 168, eta: 38}),
   mesociclo: loadJSON(LS.mesociclo, null) || {obiettivo: "dimagrimento", dataInizio: todayISO(), durataSettimane: MESOCICLO_DURATA_DEFAULT.dimagrimento, pianoPdfMigrato: true},
   pasti: loadJSON(LS.pasti, []),
+  programma: loadJSON(LS.programma, null),
   // Dati di funzioni tolte il 2026-10-20 (vecchio piano pasti, piano di cucina, lista della spesa,
   // stima della compagna): non più usati dall'app, ma conservati così come sono e inclusi in
   // export/import JSON per non perdere nulla e restare compatibili con i backup.
@@ -618,23 +691,51 @@ var REST_DEFAULTS_VERSION = 2;
   if(changed) saveJSON(LS.config, state.exercises);
 })();
 
-// Massimale stimato (1RM) con Epley, peso × (1 + rip/30), dalla serie migliore mai registrata
+// Principale con zavorra (dips): il massimale è sul carico totale, peso corporeo + zavorra (dal 2026-10-24).
+function isBallast(cfg){ return !!cfg && cfg.kind === "principal" && cfg.unit === "kg zavorra"; }
+// Peso corporeo a una data: l'ultima pesata fino a quel giorno, altrimenti la prima registrata.
+function bodyweightAt(date){
+  var list = state.bodyweight.filter(function(b){ return b.peso > 0; }).sort(function(a,b){ return a.date < b.date ? -1 : 1; });
+  if(!list.length) return null;
+  var found = null;
+  list.forEach(function(b){ if(b.date <= date) found = b; });
+  return (found || list[0]).peso;
+}
+// Peso corporeo attuale = media delle ultime 7 pesate.
+function currentBodyweight(){
+  var a = sevenDayAvg();
+  return a ? Math.round(a * 10) / 10 : null;
+}
+
+// Massimale stimato (1RM) con Epley, carico × (1 + rip/30), dalla serie migliore mai registrata
 // (Marco si allena vicino al cedimento, quindi le serie sono di fatto rep-max). Correggibile a mano.
+// Per le dips il carico è peso corporeo del giorno + zavorra (serie a corpo libero comprese).
 function computeEstimatedMaxFromHistory(exId){
+  var cfg = state.exercises[exId];
+  var ballast = isBallast(cfg);
   var best = null;
   state.workouts.forEach(function(w){
     w.exercises.forEach(function(ex){
       if(ex.id !== exId) return;
       ex.sets.forEach(function(s){
-        if(!s.reps || s.peso == null || s.peso <= 0) return;
-        var epley = s.peso * (1 + s.reps/30);
+        if(!s.reps || s.peso == null || s.peso < 0) return;
+        var bw = 0;
+        if(ballast){ bw = bodyweightAt(w.date); if(!bw) return; }
+        else if(s.peso <= 0) return;
+        var epley = (s.peso + bw) * (1 + s.reps/30);
         if(!best || epley > best.value){
           best = {value: Math.round(epley*10)/10, date: w.date, fromWeight: s.peso, fromReps: s.reps};
+          if(ballast){ best.fromBw = bw; best.totale = true; }
         }
       });
     });
   });
   return best;
+}
+function maxFromEstimate(est){
+  var m = {value: est.value, date: est.date, source: "storico", fromWeight: est.fromWeight, fromReps: est.fromReps};
+  if(est.totale){ m.totale = true; m.fromBw = est.fromBw; }
+  return m;
 }
 
 // Al primo avvio stima i massimali mancanti dallo storico.
@@ -646,13 +747,51 @@ function computeEstimatedMaxFromHistory(exId){
     if(cfg.kind === "principal" && !state.maxes[exId]){
       var est = computeEstimatedMaxFromHistory(exId);
       if(est){
-        state.maxes[exId] = {value: est.value, date: est.date, source: "storico", fromWeight: est.fromWeight, fromReps: est.fromReps};
+        state.maxes[exId] = maxFromEstimate(est);
         changed = true;
       }
     }
   });
   if(changed) saveJSON(LS.maxes, state.maxes);
 })();
+
+// Una tantum (2026-10-24): il massimale delle dips calcolato sulla sola zavorra passa al carico totale.
+// Da storico → ricalcolato; inserito a mano → + peso corporeo attuale (il valore era "zavorra massima per 1 rip").
+(function migrateBallastMaxes(){
+  var changed = false;
+  Object.keys(state.exercises).forEach(function(exId){
+    if(!isBallast(state.exercises[exId])) return;
+    var m = state.maxes[exId];
+    if(!m || m.totale) return;
+    if(m.source === "manuale"){
+      var bw = currentBodyweight();
+      if(!bw) return;
+      state.maxes[exId] = {value: Math.round((m.value + bw)*10)/10, date: m.date, source: "manuale", totale: true, convertito: true};
+      changed = true;
+    } else {
+      var est = computeEstimatedMaxFromHistory(exId);
+      if(est){ state.maxes[exId] = maxFromEstimate(est); changed = true; }
+    }
+  });
+  if(changed) saveJSON(LS.maxes, state.maxes);
+})();
+
+// Una tantum: passaggio al programma full body A/B. La rotazione riparte da A e i tre principali
+// dalla settimana 1, così cicli e scarichi restano allineati. Le sedute vecchie restano del programma 1.
+function migrateProgramma(){
+  if(state.programma && state.programma.versione >= PROGRAMMA_ATTUALE) return false;
+  state.rotationIndex = 0;
+  if(!state.cycleWeek) state.cycleWeek = {};
+  Object.keys(state.exercises).forEach(function(exId){
+    if(state.exercises[exId].kind === "principal") state.cycleWeek[exId] = 1;
+  });
+  state.programma = {versione: PROGRAMMA_ATTUALE, dal: todayISO()};
+  saveJSON(LS.rotation, state.rotationIndex);
+  saveJSON(LS.cycleWeek, state.cycleWeek);
+  saveJSON(LS.programma, state.programma);
+  return true;
+}
+migrateProgramma();
 
 // Stima della massa grassa con il metodo a nastro US Navy (formula metrica, uomini). Margine
 // tipico ±3-4 punti: va letta come trend nel tempo, non come valore assoluto.
@@ -683,6 +822,7 @@ function persistAll(){
   saveJSON(LS.bodyConfig, state.bodyConfig);
   saveJSON(LS.mesociclo, state.mesociclo);
   saveJSON(LS.pasti, state.pasti);
+  saveJSON(LS.programma, state.programma);
 }
 
 // Bozza della seduta in corso, salvata a ogni modifica e ricaricata all'avvio dopo un crash.
@@ -719,7 +859,7 @@ function exerciseLine(exId, sets, week){
     var tail = "incremento " + fmtNum(cfg.inc) + " " + cfg.unit + "): " + setsText(sets);
     var scheme = (week >= 1 && week <= WEEK_SCHEME.length) ? WEEK_SCHEME[week - 1] : null;
     if(!scheme) return head + "settimana del ciclo non registrata per questa seduta, " + tail;
-    return head + "settimana " + week + "/5 del ciclo in questa seduta, target " + scheme.sets + "x" + scheme.reps + " @" + Math.round(scheme.pct*100) + "%" + (m ? (" di 1RM stimato attuale "+fmtNum(m.value)+"kg") : "") + ", " + tail;
+    return head + "settimana " + week + "/5 del ciclo in questa seduta, target " + scheme.sets + "x" + scheme.reps + " @" + Math.round(scheme.pct*100) + "%" + (m ? (" di 1RM stimato attuale "+fmtNum(m.value)+"kg"+(m.totale ? " totali (peso corporeo + zavorra)" : "")) : "") + ", " + tail;
   }
   return cfg.name + " (" + kindLabel(cfg.kind) + ", target " + cfg.lo + (cfg.lo!==cfg.hi ? "-"+cfg.hi : "") + " rip, incremento " + fmtNum(cfg.inc) + " " + cfg.unit + "): " + setsText(sets);
 }
@@ -735,13 +875,13 @@ function cycleStatusText(){
   return "Prossima seduta di ciascun esercizio principale: " + parts.join("; ") + ".";
 }
 function trainingRulesText(){
-  return "Regole di progressione (Project Invictus): esercizi principali (panca piana, squat, dips zavorrate) — Progressione Lineare di Carico, ciclo di 5 settimane, serie fisse (4x, 2x in scarico), solo le rip scendono mentre il carico sale in base al %1RM stimato (sett.1 4x8@73%, sett.2 4x6@78%, sett.3 4x5@82%, sett.4 4x3@88%, sett.5 scarico 2x3@85%); il carico in kg è ricavato dal massimale stimato con Epley dallo storico (serie più pesante mai registrata, valida perché si allena a cedimento vero). Esercizi accessori (range di ripetizioni), RPE 8,5-10 (0-1 rip di riserva) — si sale prima con le ripetizioni fino al limite alto del range, si aggiunge carico solo quando TUTTE le serie chiudono al limite alto, poi si riparte dal limite basso. Leg raise (isolamento/finisher) può arrivare a RPE 10/cedimento tecnico, ginocchia a 90° per limiti di flessibilità, progressione prima con le ripetizioni poi con zavorra ai piedi. Deload ogni ~5 settimane: nella settimana di scarico i principali fanno 2x3 @85%, gli accessori metà delle serie (arrotondata per eccesso) con gli stessi carichi. Fase alimentare attuale: " + phaseLabel() + ".";
+  return "Programma: due schede full body a rotazione, A (squat, panca piana) nella prima seduta della settimana e B (dips zavorrate, leg press a 2-3 rip di riserva prima del weekend in bici) nella seconda. Regole di progressione (Project Invictus): esercizi principali (panca piana, squat, dips zavorrate) — Progressione Lineare di Carico, ciclo di 5 settimane, serie fisse (4x, 2x in scarico), solo le rip scendono mentre il carico sale in base al %1RM stimato (sett.1 4x8@73%, sett.2 4x6@78%, sett.3 4x5@82%, sett.4 4x3@88%, sett.5 scarico 2x3@85%); il carico in kg è ricavato dal massimale stimato con Epley dallo storico (serie più pesante mai registrata, valida perché si allena a cedimento vero); per le dips il massimale è sul carico totale (peso corporeo + zavorra) e la zavorra suggerita = carico totale della settimana − peso corporeo attuale. Esercizi accessori (range di ripetizioni), RPE 8,5-10 (0-1 rip di riserva) — si sale prima con le ripetizioni fino al limite alto del range, si aggiunge carico solo quando TUTTE le serie chiudono al limite alto, poi si riparte dal limite basso. Leg raise (isolamento/finisher) può arrivare a RPE 10/cedimento tecnico, ginocchia a 90° per limiti di flessibilità, progressione prima con le ripetizioni poi con zavorra ai piedi. Deload ogni ~5 settimane: nella settimana di scarico i principali fanno 2x3 @85%, gli accessori metà delle serie (arrotondata per eccesso) con gli stessi carichi. Fase alimentare attuale: " + phaseLabel() + ".";
 }
 function buildSessionAnalysisText(){
   var list = sortedWorkoutsAsc();
   if(!list.length) return "Nessuna seduta ancora registrata.";
   var w = list[list.length-1];
-  var scheda = SCHEDE[w.scheda];
+  var scheda = schedaOf(w.scheda, w.programma);
   var lines = [];
   lines.push("Analisi ultima seduta — " + fmtDateIt(w.date) + " — Scheda " + w.scheda + " (" + scheda.name + ")" + (w.variant ? " [variante]" : ""));
   lines.push(trainingRulesText());
@@ -775,7 +915,7 @@ function buildWeekAnalysisText(days){
     lines.push("(nessuna seduta in questo periodo)");
   } else {
     list.forEach(function(w){
-      var scheda = SCHEDE[w.scheda];
+      var scheda = schedaOf(w.scheda, w.programma);
       lines.push(fmtDateIt(w.date) + " — Scheda " + w.scheda + " (" + scheda.name + ")" + (w.variant ? " [variante]" : ""));
       w.exercises.forEach(function(e){ lines.push("  - " + exerciseLine(e.id, e.sets, e.cycleWeek)); });
       lines.push("");
@@ -901,11 +1041,14 @@ function deloadSetsCount(n){ return Math.max(1, Math.ceil(n / 2)); }
 // Riscaldamento a scalare (50/70/85% del peso di lavoro), senza step che arrotondano allo stesso peso.
 function warmupPlan(exId, workingWeight){
   var cfg = state.exercises[exId];
-  if(!workingWeight || workingWeight <= 0) return null;
+  if(!isBallast(cfg) && (!workingWeight || workingWeight <= 0)) return null;
   var steps = [{pct:0.5, reps:8}, {pct:0.7, reps:4}, {pct:0.85, reps:2}];
   var out = [];
+  // Dips: percentuali del carico totale (peso corporeo + zavorra), poi tolto il peso corporeo.
+  var bw = isBallast(cfg) ? currentBodyweight() : null;
   steps.forEach(function(s){
-    var w = Math.round((workingWeight * s.pct) / cfg.inc) * cfg.inc;
+    var w = bw ? Math.round(((bw + workingWeight) * s.pct - bw) / cfg.inc) * cfg.inc
+               : Math.round((workingWeight * s.pct) / cfg.inc) * cfg.inc;
     if(w < 0) w = 0;
     if(out.length && out[out.length-1].weight === w) return;
     out.push({weight: w, reps: s.reps});
@@ -938,7 +1081,22 @@ function suggestFor(exId, setsCount, excludeId, deload){
     var week = currentCycleWeek(exId);
     var scheme = weekSchemeFor(exId);
     var maxInfo = state.maxes[exId];
-    if(maxInfo && maxInfo.value){
+    var bwNow = isBallast(cfg) ? currentBodyweight() : null;
+    if(isBallast(cfg) && maxInfo && maxInfo.value && maxInfo.totale && bwNow){
+      var totW = maxInfo.value * scheme.pct;
+      newWeight = Math.max(0, Math.round((totW - bwNow) / cfg.inc) * cfg.inc);
+      note = "Settimana " + week + "/5" + (scheme.deload ? " (scarico)" : "") + " — " +
+             scheme.sets + "x" + scheme.reps + " @" + Math.round(scheme.pct*100) + "% ≈ " +
+             (newWeight > 0 ? fmtNum(newWeight) + " kg di zavorra" : "a corpo libero") +
+             " (" + fmtNum(Math.round(totW)) + " kg totali con il tuo peso di " + fmtNum(bwNow) + " kg) · RPE " + scheme.rpe;
+      noteType = scheme.deload ? "hold" : "up";
+      repsGuess = new Array(setsCount).fill(scheme.reps);
+    } else if(isBallast(cfg) && maxInfo && maxInfo.value){
+      note = "Settimana " + week + "/5 — " + scheme.sets + "x" + scheme.reps +
+             ". Registra il peso corporeo per calcolare la zavorra: intanto ripeti " + fmtNum(lastWeight) + " kg";
+      noteType = "hold";
+      repsGuess = new Array(setsCount).fill(scheme.reps);
+    } else if(maxInfo && maxInfo.value){
       var rawW = maxInfo.value * scheme.pct;
       newWeight = Math.round(rawW / cfg.inc) * cfg.inc;
       if(newWeight < 0) newWeight = 0;
@@ -1018,18 +1176,14 @@ if(logSession){
   if(logSession.closing === undefined) logSession.closing = false;
 }
 
-function startLog(schedaId, variant){
+function startLog(schedaId){
   var scheda = SCHEDE[schedaId];
   var exIds = scheda.exercises.slice();
-  if(schedaId === "B" && variant){
-    exIds = exIds.filter(function(id){ return id !== "squat"; });
-  }
   var sets = {};
   var deload = isDeloadSession(exIds);
   exIds.forEach(function(exId){
     var cfg = state.exercises[exId];
     var setsCount = setsCountFor(exId);
-    if(schedaId === "B" && variant && exId === "leg_press") setsCount = 4;
     if(deload && cfg.kind !== "principal") setsCount = deloadSetsCount(setsCount);
     var sug = suggestFor(exId, setsCount, null, deload);
     var arr = [];
@@ -1038,7 +1192,7 @@ function startLog(schedaId, variant){
     }
     sets[exId] = arr;
   });
-  logSession = {schedaId: schedaId, variant: !!variant, date: todayISO(), editId: null, exIds: exIds, sets: sets, closing: false, exNotes: {}, feedback: {}, deload: deload};
+  logSession = {schedaId: schedaId, programma: PROGRAMMA_ATTUALE, variant: false, date: todayISO(), editId: null, exIds: exIds, sets: sets, closing: false, exNotes: {}, feedback: {}, deload: deload};
   persistLogDraft();
   showTab("oggi");
 }
@@ -1054,9 +1208,29 @@ function editSession(id){
     sets[e.id] = e.sets.map(function(s){ return {peso:s.peso, reps:s.reps, stato: s.stato || null}; });
     if(e.nota) exNotes[e.id] = e.nota;
   });
-  logSession = {schedaId: w.scheda, variant: !!w.variant, date: w.date, editId: w.id, exIds: exIds, sets: sets, closing: false, exNotes: exNotes, feedback: w.feedback ? Object.assign({}, w.feedback) : {}};
+  logSession = {schedaId: w.scheda, programma: w.programma, variant: !!w.variant, date: w.date, editId: w.id, exIds: exIds, sets: sets, closing: false, exNotes: exNotes, feedback: w.feedback ? Object.assign({}, w.feedback) : {}};
   persistLogDraft();
   showTab("oggi");
+}
+
+// Attrezzo occupato: sostituisce l'esercizio con la sua alternativa (stesse serie, carico dal suo storico) o lo ripristina.
+function swapExercise(exId){
+  if(!logSession) return;
+  var sch = schedaOf(logSession.schedaId, logSession.programma);
+  var a = altFor(sch, exId);
+  var i = logSession.exIds.indexOf(exId);
+  if(!a || i < 0 || logSession.exIds.indexOf(a.id) > -1) return;
+  var n = logSession.sets[exId].length;
+  var cfg = state.exercises[a.id];
+  var sug = suggestFor(a.id, n, logSession.editId, !!logSession.deload);
+  var arr = [];
+  for(var k = 0; k < n; k++) arr.push({peso: sug.weight, reps: (sug.reps[k] !== undefined ? sug.reps[k] : cfg.lo), stato: null});
+  logSession.exIds[i] = a.id;
+  delete logSession.sets[exId];
+  logSession.sets[a.id] = arr;
+  if(logSession.exNotes && logSession.exNotes[exId]){ logSession.exNotes[a.id] = logSession.exNotes[exId]; delete logSession.exNotes[exId]; }
+  persistLogDraft();
+  render();
 }
 
 function cancelLog(){
@@ -1113,6 +1287,7 @@ function saveLog(){
         variant: logSession.variant,
         exercises: exercisesOut
       };
+      if(logSession.programma) updated.programma = logSession.programma;
       if(fb) updated.feedback = fb;
       state.workouts[idx] = updated;
     }
@@ -1130,6 +1305,7 @@ function saveLog(){
     variant: logSession.variant,
     exercises: exercisesOut
   };
+  if(logSession.programma) workout.programma = logSession.programma;
   if(fb) workout.feedback = fb;
   state.workouts.push(workout);
   advanceRotation();
@@ -1217,7 +1393,7 @@ function renderOggi(){
       el.innerHTML = renderFeedbackFormHTML();
       return;
     }
-    var scheda = SCHEDE[logSession.schedaId];
+    var scheda = schedaOf(logSession.schedaId, logSession.programma);
     var html = "";
     html += '<div class="card">';
     html += '<div class="row between">';
@@ -1235,11 +1411,16 @@ function renderOggi(){
       var sug = suggestFor(exId, logSession.sets[exId].length, logSession.editId, !!logSession.deload);
       html += '<div class="exercise">';
       html += '<div class="exname">'+cfg.name+'</div>';
+      var restSec = restFor(scheda, exId);
       if(cfg.kind === "principal"){
-        html += '<div class="exmeta">Esercizio principale · settimana '+currentCycleWeek(exId)+'/5 del ciclo · '+logSession.sets[exId].length+' serie · recupero '+formatRest(cfg.rest)+'</div>';
+        html += '<div class="exmeta">Esercizio principale · settimana '+currentCycleWeek(exId)+'/5 del ciclo · '+logSession.sets[exId].length+' serie · recupero '+restText(restSec)+'</div>';
       } else {
-        html += '<div class="exmeta">'+cfg.lo+(cfg.lo!==cfg.hi?("-"+cfg.hi):"")+" rip · "+logSession.sets[exId].length+" serie · recupero "+formatRest(cfg.rest)+'</div>';
+        html += '<div class="exmeta">'+cfg.lo+(cfg.lo!==cfg.hi?("-"+cfg.hi):"")+" rip · "+logSession.sets[exId].length+" serie · recupero "+restText(restSec)+'</div>';
       }
+      var exNote = noteFor(scheda, exId);
+      if(exNote) html += '<div class="last-time">'+exNote+'</div>';
+      var exAlt = altFor(scheda, exId);
+      if(exAlt) html += '<button class="btn ghost small" style="width:auto;min-height:34px;padding:4px 10px;margin:4px 0;" data-act="swap-ex" data-ex="'+exId+'">'+exAlt.label+'</button>';
       if(sug.lastText){
         html += '<div class="last-time">Ultima volta ('+fmtDateIt(sug.lastDate)+'): '+sug.lastText+'</div>';
       }
@@ -1302,11 +1483,8 @@ function renderOggi(){
   html += '<h2 style="font-size:22px;margin-top:2px;">Scheda '+nextId+' — '+nextScheda.name+'</h2>';
   if(isDeloadSession(nextScheda.exercises)) html += '<div class="suggestion hold">Seduta di scarico: principale 2x3, accessori a metà serie</div>';
   html += '<div class="btn-row" style="margin-top:12px;">';
-  html += '<button class="btn primary" data-act="start-log" data-scheda="'+nextId+'" data-variant="0">Inizia '+nextId+'</button>';
+  html += '<button class="btn primary" data-act="start-log" data-scheda="'+nextId+'">Inizia '+nextId+'</button>';
   html += '</div>';
-  if(nextId === "B"){
-    html += '<button class="btn ghost small" style="margin-top:8px;" data-act="start-log" data-scheda="B" data-variant="1">Variante senza squat (esco in bici)</button>';
-  }
   html += '</div>';
 
   html += bikeCardHTML();
@@ -1334,11 +1512,10 @@ function renderOggi(){
   html += '<div class="card">';
   html += '<h3>Scegli un\'altra scheda</h3>';
   html += '<div class="btn-row">';
-  ["A","B","C"].forEach(function(id){
-    html += '<button class="btn small" data-act="start-log" data-scheda="'+id+'" data-variant="0">'+id+(isDeloadSession(SCHEDE[id].exercises)?' (scarico)':'')+'</button>';
+  ROTATION_SEQUENCE.forEach(function(id){
+    html += '<button class="btn small" data-act="start-log" data-scheda="'+id+'">'+id+' — '+SCHEDE[id].name+(isDeloadSession(SCHEDE[id].exercises)?' (scarico)':'')+'</button>';
   });
   html += '</div>';
-  html += '<button class="btn ghost small" style="margin-top:8px;" data-act="start-log" data-scheda="B" data-variant="1">B variante no-squat</button>';
   html += '</div>';
 
   html += '<div class="grid2">';
@@ -1371,7 +1548,7 @@ function feedbackBtnGroup(label, field, options){
 }
 
 function renderFeedbackFormHTML(){
-  var scheda = SCHEDE[logSession.schedaId];
+  var scheda = schedaOf(logSession.schedaId, logSession.programma);
   var fb = logSession.feedback || {};
   var html = "";
   html += '<div class="card"><h2 style="margin:0;">Chiudi seduta — mini feedback</h2>';
@@ -1437,10 +1614,10 @@ function buildRegistroHTML(){
   } else {
     var sorted = sortedWorkoutsAsc().reverse();
     sorted.forEach(function(w){
-      var scheda = SCHEDE[w.scheda];
+      var scheda = schedaOf(w.scheda, w.programma);
       html += '<div class="session-item">';
       html += '<div class="row between head" data-act="toggle-session" data-id="'+w.id+'">';
-      html += '<div><strong>'+fmtDateIt(w.date)+'</strong> · Scheda '+w.scheda+(w.variant?' <span class="badge variant">variante</span>':'')+'</div>';
+      html += '<div><strong>'+fmtDateIt(w.date)+'</strong> · Scheda '+w.scheda+' <span class="muted small">'+scheda.name+'</span>'+(w.variant?' <span class="badge variant">variante</span>':'')+'</div>';
       html += '<div style="display:flex;gap:6px;">';
       html += '<button class="btn small ghost" data-act="edit-session" data-id="'+w.id+'" style="width:auto;min-height:38px;padding:6px 12px;">Modifica</button>';
       html += '<button class="btn small danger" data-act="delete-session" data-id="'+w.id+'" style="width:auto;min-height:38px;padding:6px 12px;">Elimina</button>';
@@ -1535,7 +1712,8 @@ function toJSON(){
     mesociclo: state.mesociclo,
     partner: state.partner,
     shoppingChecked: state.shoppingChecked,
-    pasti: state.pasti
+    pasti: state.pasti,
+    programma: state.programma
   }, null, 2);
 }
 
@@ -1721,7 +1899,7 @@ function renderSparkline(){
    ============================================================ */
 function schedaTable(id, variantNote){
   var scheda = SCHEDE[id];
-  var html = '<h3>Scheda '+id+' — '+scheda.name+'</h3><table><thead><tr><th>Esercizio</th><th>Serie×Rip</th></tr></thead><tbody>';
+  var html = '<h3>Scheda '+id+' — '+scheda.name+'</h3><table><thead><tr><th>Esercizio</th><th>Serie×Rip</th><th>Recupero</th></tr></thead><tbody>';
   scheda.exercises.forEach(function(exId){
     var cfg = state.exercises[exId];
     var cell;
@@ -1732,7 +1910,12 @@ function schedaTable(id, variantNote){
       var rr = cfg.lo === cfg.hi ? cfg.lo : (cfg.lo+"-"+cfg.hi);
       cell = cfg.defSets+'×'+rr;
     }
-    html += '<tr><td>'+cfg.name+(cfg.kind==="principal"?' <span class="badge">principale</span>':'')+'</td><td>'+cell+'</td></tr>';
+    var extra = "";
+    var nt = noteFor(scheda, exId);
+    if(nt) extra += '<div class="muted small" style="margin-top:2px;">'+nt+'</div>';
+    var al = scheda.alt && scheda.alt[exId];
+    if(al) extra += '<div class="small" style="margin-top:2px;">'+al.quando+': '+state.exercises[al.id].name+'</div>';
+    html += '<tr><td>'+cfg.name+(cfg.kind==="principal"?' <span class="badge">principale</span>':'')+extra+'</td><td>'+cell+'</td><td>'+(restFor(scheda, exId) === 0 ? 'subito' : formatRest(restFor(scheda, exId)))+'</td></tr>';
   });
   html += '</tbody></table>';
   if(variantNote) html += '<p class="small muted" style="margin-top:8px;">'+variantNote+'</p>';
@@ -1753,11 +1936,10 @@ function consultaSectionHTML(key, label, innerHtml){
 
 function consultaAllenamentoHTML(){
   var html = "";
-  html += '<div class="card"><h3 style="margin:0;">Rotazione</h3><p class="small">Ciclo puro <strong>A, B, C</strong> che si ripete in base alle sedute fatte, non ai giorni della settimana — ogni scheda torna con la stessa frequenza, circa ogni 10 giorni con 2 sedute a settimana.</p></div>';
+  html += '<div class="card"><h3 style="margin:0;">Rotazione</h3><p class="small">Due schede full body, <strong>A</strong> nella prima seduta della settimana e <strong>B</strong> nella seconda: quasi ogni muscolo lavora 2 volte a settimana e ogni principale una. Se salti la prima seduta e la A cadrebbe il giorno prima di un\'uscita in bici, fai la B e riprendi con la A la settimana dopo.</p><p class="small muted">Se un attrezzo è occupato, durante la seduta tocca il pulsante sotto l\'esercizio: passa all\'alternativa, che tiene il suo storico dei carichi.</p></div>';
 
   html += '<div class="card">'+schedaTable("A")+'</div>';
-  html += '<div class="card">'+schedaTable("B", "Variante senza squat: leg press 4×8-10 con 2-3 rip di riserva, non scendere sotto il parallelo.")+'</div>';
-  html += '<div class="card">'+schedaTable("C")+'</div>';
+  html += '<div class="card">'+schedaTable("B")+'</div>';
 
   html += '<div class="card"><h3 style="margin:0;">Regole di progressione</h3>';
   html += '<p class="small"><strong>Principali — Progressione Lineare di Carico (Project Invictus):</strong> ciclo di 5 settimane, serie fisse (4x, 2x in scarico), solo le ripetizioni scendono mentre il carico sale — settimana 1: 4x8 @73%1RM stimato; sett. 2: 4x6 @78%; sett. 3: 4x5 @82%; sett. 4: 4x3 @88%; sett. 5: scarico 2x3 @85%. Il carico in kg è calcolato in automatico dal massimale stimato (vedi Impostazioni → Massimali stimati).</p>';
@@ -2352,7 +2534,7 @@ function renderImpostazioni(){
   html += '</div>';
 
   html += '<div class="card"><h2>Massimali stimati</h2>';
-  html += '<p class="small muted">Stima del massimale (1RM) con la formula di Epley, dalla serie più pesante mai registrata per ciascun principale — valida perché finora ti alleni a cedimento vero su ogni serie. Usata per calcolare i carichi suggeriti (vedi Progressione Lineare di Carico in Consulta). Puoi correggerla a mano o ricalcolarla dallo storico.</p>';
+  html += '<p class="small muted">Stima del massimale (1RM) con la formula di Epley, dalla serie più pesante mai registrata per ciascun principale — valida perché finora ti alleni a cedimento vero su ogni serie. Usata per calcolare i carichi suggeriti (vedi Progressione Lineare di Carico in Consulta). Per le dips il massimale è sul carico totale (peso corporeo + zavorra): la zavorra suggerita è il carico della settimana meno il tuo peso attuale. Puoi correggerla a mano o ricalcolarla dallo storico.</p>';
   Object.keys(state.exercises).forEach(function(exId){
     var cfg = state.exercises[exId];
     if(cfg.kind !== "principal") return;
@@ -2360,11 +2542,13 @@ function renderImpostazioni(){
     html += '<div class="field">';
     html += '<label>'+cfg.name+'</label>';
     html += '<div class="grid2">';
-    html += '<div><span class="small muted">1RM stimato (kg)</span><input type="number" step="'+cfg.inc+'" min="0" value="'+(m?m.value:"")+'" data-act="set-max" data-ex="'+exId+'"></div>';
+    html += '<div><span class="small muted">1RM stimato ('+(isBallast(cfg) ? 'kg totali: peso + zavorra' : 'kg')+')</span><input type="number" step="'+cfg.inc+'" min="0" value="'+(m?m.value:"")+'" data-act="set-max" data-ex="'+exId+'"></div>';
     html += '<div><span class="small muted">Settimana ciclo (1-5)</span><input type="number" step="1" min="1" max="5" value="'+currentCycleWeek(exId)+'" data-act="set-cycle-week" data-ex="'+exId+'"></div>';
     html += '</div>';
     if(m){
-      html += '<div class="small muted" style="margin-top:4px;">'+(m.source==="manuale"?"Impostato a mano":("Da storico: "+fmtNum(m.fromWeight)+"×"+m.fromReps))+' · '+fmtDateIt(m.date)+'</div>';
+      var origine = m.source === "manuale" ? (m.convertito ? "Impostato a mano (sulla zavorra) e convertito sul totale con il peso attuale" : "Impostato a mano")
+        : ("Da storico: " + (m.totale ? ("zavorra " + fmtNum(m.fromWeight) + " kg + peso " + fmtNum(m.fromBw) + " kg") : fmtNum(m.fromWeight)) + "×" + m.fromReps);
+      html += '<div class="small muted" style="margin-top:4px;">'+origine+' · '+fmtDateIt(m.date)+'</div>';
     } else {
       html += '<div class="small muted" style="margin-top:4px;">Nessuna stima ancora: registra almeno una seduta con questo esercizio, oppure inseriscila a mano sopra.</div>';
     }
@@ -2410,7 +2594,7 @@ function renderImpostazioni(){
   html += '<div class="card"><h2>Rotazione</h2>';
   html += '<p class="small">Prossima scheda proposta: <strong>'+nextSchedaId()+'</strong></p>';
   html += '<div class="btn-row">';
-  ["A","B","C"].forEach(function(id){
+  ROTATION_SEQUENCE.forEach(function(id){
     html += '<button class="btn small" data-act="force-rotation" data-scheda="'+id+'">Forza: '+id+'</button>';
   });
   html += '</div>';
@@ -2450,7 +2634,9 @@ document.addEventListener("click", function(e){
   var act = t.getAttribute("data-act");
 
   if(act === "start-log"){
-    startLog(t.getAttribute("data-scheda"), t.getAttribute("data-variant") === "1");
+    startLog(t.getAttribute("data-scheda"));
+  } else if(act === "swap-ex"){
+    swapExercise(t.getAttribute("data-ex"));
   } else if(act === "cancel-log"){
     cancelLog();
   } else if(act === "close-log"){
@@ -2592,7 +2778,7 @@ document.addEventListener("click", function(e){
     var exIdM = t.getAttribute("data-ex");
     var est = computeEstimatedMaxFromHistory(exIdM);
     if(est){
-      state.maxes[exIdM] = {value: est.value, date: est.date, source: "storico", fromWeight: est.fromWeight, fromReps: est.fromReps};
+      state.maxes[exIdM] = maxFromEstimate(est);
       persistAll();
       toast("Massimale ricalcolato: "+fmtNum(est.value)+" kg");
       render();
@@ -2618,6 +2804,7 @@ document.addEventListener("click", function(e){
       localStorage.removeItem(LS.partner);
       localStorage.removeItem(LS.shoppingChecked);
       localStorage.removeItem(LS.pasti);
+      localStorage.removeItem(LS.programma);
       state.exercises = JSON.parse(JSON.stringify(DEFAULT_EXERCISES));
       state.workouts = [];
       state.bodyweight = [];
@@ -2630,6 +2817,7 @@ document.addEventListener("click", function(e){
       state.mesociclo = {obiettivo: "dimagrimento", dataInizio: todayISO(), durataSettimane: MESOCICLO_DURATA_DEFAULT.dimagrimento, pianoPdfMigrato: true, targets: JSON.parse(JSON.stringify(DIMAGRIMENTO_TARGETS)), piano: "base", versione: 1, storico: []};
       LEGACY_KEYS.forEach(function(k){ state[k] = null; });
       state.pasti = [];
+      state.programma = {versione: PROGRAMMA_ATTUALE, dal: todayISO()};
       wiz = null;
       logSession = null;
       toast("Dati cancellati");
@@ -2717,6 +2905,7 @@ document.addEventListener("change", function(e){
     var vMax = parseFloat(String(t.value).replace(",", "."));
     if(!isNaN(vMax) && vMax > 0){
       state.maxes[exIdMax] = {value: Math.round(vMax*10)/10, date: todayISO(), source: "manuale"};
+      if(isBallast(state.exercises[exIdMax])) state.maxes[exIdMax].totale = true;
       persistAll();
       toast("Massimale aggiornato");
       render();
@@ -2797,6 +2986,9 @@ document.addEventListener("change", function(e){
         if(data.bodyConfig) state.bodyConfig = data.bodyConfig;
         if(data.mesociclo) state.mesociclo = data.mesociclo;
         if(data.pasti) state.pasti = data.pasti;
+        // Backup di prima del full body: le sue sedute sono del programma 1, rotazione e cicli ripartono.
+        if(data.programma) state.programma = data.programma;
+        else { state.programma = null; migrateProgramma(); }
         LEGACY_KEYS.forEach(function(k){
           if(data[k] !== undefined && data[k] !== null){ state[k] = data[k]; saveJSON(LS[k], data[k]); }
         });
