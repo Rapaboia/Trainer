@@ -373,7 +373,9 @@ var DEFAULT_EXERCISES = {
   alzate_laterali_panca:     {name:"Alzate laterali a petto appoggiato",    kind:"range", lo:10, hi:12, inc:1,   unit:"kg", defSets:3, rest:90},
   aperture_posteriori_panca: {name:"Aperture posteriori a petto appoggiato", kind:"range", lo:12, hi:15, inc:1,   unit:"kg", defSets:3, rest:60},
   alzate_laterali_macchina:  {name:"Alzate laterali alla macchina",         kind:"range", lo:10, hi:12, inc:2.5, unit:"kg", defSets:3, rest:90},
-  reverse_pec_deck:          {name:"Reverse pec deck",                      kind:"range", lo:12, hi:15, inc:2.5, unit:"kg", defSets:3, rest:60}
+  reverse_pec_deck:          {name:"Reverse pec deck",                      kind:"range", lo:12, hi:15, inc:2.5, unit:"kg", defSets:3, rest:60},
+  // 2026-11: alternativa alla double row (rematore TECA con appoggio al petto). Range 8-10 come il pulley: scelta pratica.
+  rematore_macchina:         {name:"Rematore alla macchina (petto appoggiato)", kind:"range", lo:8, hi:10, inc:2.5, unit:"kg", defSets:3, rest:120}
 };
 
 // Progressione Lineare di Carico (Project Invictus, vedi programma.md). pct = %1RM della settimana,
@@ -407,21 +409,24 @@ var SCHEDE = {
         bayesan_curl:"Superserie con il push down: finita la serie passa subito al push down.",
         push_down:"Superserie con il bayesan curl: dopo la coppia 1'30\" di recupero."
       },
-      alt:{shoulder_press_macchina:{id:"lento_avanti", quando:"Macchina occupata"}}},
+      alt:{shoulder_press_macchina:{id:"lento_avanti", quando:"Macchina occupata"}},
+      // Jump set dei principali nelle settimane 1-2 (carichi 73-78%): serie alternate, 1'30" al cambio, ~3' tra due serie dello stesso esercizio.
+      jump:{squat:"panca_piana", panca_piana:"squat"}},
   B: {name:"Dips e Tirate",
-      exercises:["dips_zavorrate","leg_press","double_row_panca_inclinata","alzate_laterali_panca","aperture_posteriori_panca","calf_raise","leg_raise"],
-      rest:{double_row_panca_inclinata:0, alzate_laterali_panca:0, aperture_posteriori_panca:120},
+      // 2026-11: remata da sola con recupero pieno (nel circuito crollava), alzate in piedi + pec deck in jump set.
+      exercises:["dips_zavorrate","leg_press","double_row_panca_inclinata","alzate_laterali","reverse_pec_deck","calf_raise","leg_raise"],
+      rest:{double_row_panca_inclinata:120, alzate_laterali:0, reverse_pec_deck:60},
       notes:{
         leg_press:"2-3 rip di riserva e non sotto il parallelo: gambe fresche per la bici nel weekend.",
-        double_row_panca_inclinata:"Circuito sulla panca inclinata (1/3): passa subito alle alzate laterali.",
-        alzate_laterali_panca:"Circuito (2/3): braccia di lato verso la testa, gomiti fino all'altezza delle spalle. Poi subito le aperture.",
-        aperture_posteriori_panca:"Circuito (3/3): braccia a T, perpendicolari al busto; spingi verso l'esterno senza stringere le scapole. Poi 2' e riparti dal rematore."
+        double_row_panca_inclinata:"Da sola, con recupero pieno.",
+        alzate_laterali:"Jump set con il pec deck: finita la serie passa subito al pec deck.",
+        reverse_pec_deck:"Jump set con le alzate: dopo la coppia 1' di recupero. Seduto al contrario, petto contro lo schienale, maniglie all'altezza delle spalle, apri a T."
       },
       alt:{
-        double_row_panca_inclinata:{id:"pulley_basso", quando:"Panca occupata"},
-        alzate_laterali_panca:{id:"alzate_laterali_macchina", quando:"Panca occupata"},
-        aperture_posteriori_panca:{id:"reverse_pec_deck", quando:"Panca occupata"}
-      }}
+        double_row_panca_inclinata:{id:"rematore_macchina", quando:"Panca occupata"},
+        reverse_pec_deck:{id:"aperture_posteriori_panca", quando:"Pec deck occupato"}
+      },
+      jump:{dips_zavorrate:"leg_press", leg_press:"dips_zavorrate"}}
 };
 
 var ROTATION_SEQUENCE = ["A","B"];
@@ -446,11 +451,30 @@ function altFor(sch, exId){
   if(k !== exId) return {id: k, label: "Torna a " + state.exercises[k].name};
   return null;
 }
+// Jump set dei principali: attivo solo quando il principale della coppia è alla settimana 1 o 2.
+var JUMP_SET_MAX_WEEK = 2;
+var JUMP_SET_REST = 90;
+function jumpFor(sch, exId){
+  var j = (sch && sch.jump) || {};
+  var partner = j[exId];
+  if(!partner) return null;
+  var principal = (state.exercises[exId] && state.exercises[exId].kind === "principal") ? exId : partner;
+  var sc = weekSchemeFor(principal);
+  if(sc.deload || currentCycleWeek(principal) > JUMP_SET_MAX_WEEK) return null;
+  return partner;
+}
 function noteFor(sch, exId){
   var n = (sch && sch.notes) || {};
-  return n[exId] || n[primaryOf(sch, exId)] || "";
+  var base = n[exId] || n[primaryOf(sch, exId)] || "";
+  var partner = jumpFor(sch, exId);
+  if(partner){
+    var jt = "Jump set con " + state.exercises[partner].name.toLowerCase() + " (settimane 1-2): serie di uno, 1'30\", serie dell'altro, 1'30\"… tra due serie dello stesso esercizio passano ~3'. Se l'attrezzo è lontano o occupato, fai le serie normali.";
+    base = base ? (jt + " " + base) : jt;
+  }
+  return base;
 }
 function restFor(sch, exId){
+  if(jumpFor(sch, exId)) return JUMP_SET_REST;
   var r = (sch && sch.rest) || {};
   var k = primaryOf(sch, exId);
   if(r[exId] != null) return r[exId];
@@ -793,6 +817,61 @@ function migrateProgramma(){
 }
 migrateProgramma();
 
+// Una tantum (2026-11, app v36): ripresa dopo la malattia e i 4x8 troppo pesanti.
+// - Massimali corretti con le serie reali del 27-29/10 (circa 1 rip in canna): squat 91, panca 80, dips 99 totali.
+//   Si applicano solo se il massimale attuale è più alto e impostato prima del 30/10 (non tocca correzioni fatte a mano dopo).
+// - Se non ci sono sedute dopo il 31/10: principali alla settimana 1, ripetuta due volte (ripresa).
+// - Dimagrimento iniziato entro il 31/10: durata +2 settimane (la settimana di malattia falsa il mantenimento).
+var RIPRESA_MAX = {squat: 91, panca_piana: 80, dips_zavorrate: 99};
+(function migrateRipresa(){
+  if(!state.programma || state.programma.v36) return;
+  var oggi = todayISO();
+  Object.keys(RIPRESA_MAX).forEach(function(id){
+    var cfg = state.exercises[id];
+    if(!cfg) return;
+    var m = state.maxes[id];
+    if(m && (m.value <= RIPRESA_MAX[id] || (m.date && m.date >= "2026-10-30"))) return;
+    state.maxes[id] = {value: RIPRESA_MAX[id], date: oggi, source: "manuale", nota: "corretto dopo il 4x8 troppo pesante"};
+    if(isBallast(cfg)) state.maxes[id].totale = true;
+  });
+  var dopo = state.workouts.some(function(w){ return w.date > "2026-10-31"; });
+  if(!dopo && state.workouts.length){
+    state.programma.ripresa = {};
+    Object.keys(state.exercises).forEach(function(id){
+      if(state.exercises[id].kind === "principal"){ state.cycleWeek[id] = 1; state.programma.ripresa[id] = 1; }
+    });
+  }
+  var mz = state.mesociclo;
+  if(mz && mz.obiettivo === "dimagrimento" && mz.dataInizio && mz.dataInizio <= "2026-10-31"){
+    mz.durataSettimane = (mz.durataSettimane || 4) + 2;
+  }
+  state.programma.v36 = oggi;
+  saveJSON(LS.maxes, state.maxes);
+  saveJSON(LS.cycleWeek, state.cycleWeek);
+  saveJSON(LS.programma, state.programma);
+  saveJSON(LS.mesociclo, state.mesociclo);
+})();
+// Settimana ripetuta per la ripresa: quante volte ancora il principale resta alla settimana attuale.
+function ripresaLeft(exId){
+  return (state.programma && state.programma.ripresa && state.programma.ripresa[exId]) || 0;
+}
+
+// Massimale dalle ripetizioni in canna della 1ª serie allenante (la meno affaticata), con Epley:
+// carico × (1 + (rip fatte + rip in canna)/30). Per le dips il carico è peso del giorno + zavorra.
+// Si aggiorna solo nelle settimane 1-4 (in scarico le serie sono troppo lontane dal cedimento). Scelta pratica, 2026-11.
+var RIR_OPTIONS = [0, 1, 2, 3, 4];
+function maxFromRir(exId, set, rir, date){
+  var cfg = state.exercises[exId];
+  if(!set || !set.reps || set.peso == null || set.peso < 0) return null;
+  var bw = 0;
+  if(isBallast(cfg)){ bw = bodyweightAt(date); if(!bw) return null; }
+  else if(set.peso <= 0) return null;
+  var v = (set.peso + bw) * (1 + (set.reps + rir) / 30);
+  var m = {value: Math.round(v * 10) / 10, date: date, source: "rir", fromWeight: set.peso, fromReps: set.reps, rir: rir};
+  if(isBallast(cfg)){ m.totale = true; m.fromBw = bw; }
+  return m;
+}
+
 // Stima della massa grassa con il metodo a nastro US Navy (formula metrica, uomini). Margine
 // tipico ±3-4 punti: va letta come trend nel tempo, non come valore assoluto.
 function navyBodyFatMale(vitaCm, colloCm, altezzaCm){
@@ -851,7 +930,7 @@ function setsText(sets){
   return sets.map(function(s){ return fmtNum(s.peso)+"x"+s.reps; }).join(", ");
 }
 // week = settimana del ciclo salvata nella seduta (dal 2026-10-13); le sedute più vecchie non ce l'hanno.
-function exerciseLine(exId, sets, week){
+function exerciseLine(exId, sets, week, rir){
   var cfg = state.exercises[exId];
   if(cfg.kind === "principal"){
     var m = state.maxes[exId];
@@ -859,7 +938,7 @@ function exerciseLine(exId, sets, week){
     var tail = "incremento " + fmtNum(cfg.inc) + " " + cfg.unit + "): " + setsText(sets);
     var scheme = (week >= 1 && week <= WEEK_SCHEME.length) ? WEEK_SCHEME[week - 1] : null;
     if(!scheme) return head + "settimana del ciclo non registrata per questa seduta, " + tail;
-    return head + "settimana " + week + "/5 del ciclo in questa seduta, target " + scheme.sets + "x" + scheme.reps + " @" + Math.round(scheme.pct*100) + "%" + (m ? (" di 1RM stimato attuale "+fmtNum(m.value)+"kg"+(m.totale ? " totali (peso corporeo + zavorra)" : "")) : "") + ", " + tail;
+    return head + "settimana " + week + "/5 del ciclo in questa seduta" + (rir != null ? ", " + rir + (rir === 4 ? "+" : "") + " rip in canna nella 1ª serie" : "") + ", target " + scheme.sets + "x" + scheme.reps + " @" + Math.round(scheme.pct*100) + "%" + (m ? (" di 1RM stimato attuale "+fmtNum(m.value)+"kg"+(m.totale ? " totali (peso corporeo + zavorra)" : "")) : "") + ", " + tail;
   }
   return cfg.name + " (" + kindLabel(cfg.kind) + ", target " + cfg.lo + (cfg.lo!==cfg.hi ? "-"+cfg.hi : "") + " rip, incremento " + fmtNum(cfg.inc) + " " + cfg.unit + "): " + setsText(sets);
 }
@@ -875,7 +954,7 @@ function cycleStatusText(){
   return "Prossima seduta di ciascun esercizio principale: " + parts.join("; ") + ".";
 }
 function trainingRulesText(){
-  return "Programma: due schede full body a rotazione, A (squat, panca piana) nella prima seduta della settimana e B (dips zavorrate, leg press a 2-3 rip di riserva prima del weekend in bici) nella seconda. Regole di progressione (Project Invictus): esercizi principali (panca piana, squat, dips zavorrate) — Progressione Lineare di Carico, ciclo di 5 settimane, serie fisse (4x, 2x in scarico), solo le rip scendono mentre il carico sale in base al %1RM stimato (sett.1 4x8@73%, sett.2 4x6@78%, sett.3 4x5@82%, sett.4 4x3@88%, sett.5 scarico 2x3@85%); il carico in kg è ricavato dal massimale stimato con Epley dallo storico (serie più pesante mai registrata, valida perché si allena a cedimento vero); per le dips il massimale è sul carico totale (peso corporeo + zavorra) e la zavorra suggerita = carico totale della settimana − peso corporeo attuale. Esercizi accessori (range di ripetizioni), RPE 8,5-10 (0-1 rip di riserva) — si sale prima con le ripetizioni fino al limite alto del range, si aggiunge carico solo quando TUTTE le serie chiudono al limite alto, poi si riparte dal limite basso. Leg raise (isolamento/finisher) può arrivare a RPE 10/cedimento tecnico, ginocchia a 90° per limiti di flessibilità, progressione prima con le ripetizioni poi con zavorra ai piedi. Deload ogni ~5 settimane: nella settimana di scarico i principali fanno 2x3 @85%, gli accessori metà delle serie (arrotondata per eccesso) con gli stessi carichi. Deload reattivo (Piramide): a fine seduta l'app chiede voglia di allenarsi, sonno, stress, prestazione e fastidi; se 2 sedute di fila hanno ciascuna almeno 2 segnali di affaticamento propone di anticipare lo scarico. Registra anche la pancia all'arrivo (gonfiore), solo come dato da incrociare. Fase alimentare attuale: " + phaseLabel() + ".";
+  return "Programma: due schede full body a rotazione, A (squat e panca piana; trazioni + shoulder press e bayesan curl + push down in jump set) nella prima seduta della settimana e B (dips zavorrate, leg press a 2-3 rip di riserva prima del weekend in bici, double row da sola, alzate laterali + reverse pec deck in jump set, calf raise, leg raise) nella seconda. Nelle settimane 1-2 i principali si fanno in jump set (squat con panca, dips con leg press: 1'30\" al cambio, ~3' tra due serie dello stesso esercizio). A novembre 2026 ripresa dopo uno stop di ~2 settimane per malattia: settimana 1 ripetuta due volte e massimali corretti (squat 91, panca 80, dips 99 totali) perché i 4x8 del 27-29/10 erano risultati troppo pesanti. Dopo ogni principale (settimane 1-4) si segnano le ripetizioni in canna nella 1ª serie e il massimale si aggiorna con Epley su carico, rip fatte e rip in canna. Regole di progressione (Project Invictus): esercizi principali (panca piana, squat, dips zavorrate) — Progressione Lineare di Carico, ciclo di 5 settimane, serie fisse (4x, 2x in scarico), solo le rip scendono mentre il carico sale in base al %1RM stimato (sett.1 4x8@73%, sett.2 4x6@78%, sett.3 4x5@82%, sett.4 4x3@88%, sett.5 scarico 2x3@85%); il carico in kg è ricavato dal massimale stimato con Epley dallo storico (serie più pesante mai registrata, valida perché si allena a cedimento vero); per le dips il massimale è sul carico totale (peso corporeo + zavorra) e la zavorra suggerita = carico totale della settimana − peso corporeo attuale. Esercizi accessori (range di ripetizioni), RPE 8,5-10 (0-1 rip di riserva) — si sale prima con le ripetizioni fino al limite alto del range, si aggiunge carico solo quando TUTTE le serie chiudono al limite alto, poi si riparte dal limite basso. Leg raise (isolamento/finisher) può arrivare a RPE 10/cedimento tecnico, ginocchia a 90° per limiti di flessibilità, progressione prima con le ripetizioni poi con zavorra ai piedi. Deload ogni ~5 settimane: nella settimana di scarico i principali fanno 2x3 @85%, gli accessori metà delle serie (arrotondata per eccesso) con gli stessi carichi. Deload reattivo (Piramide): a fine seduta l'app chiede voglia di allenarsi, sonno, stress, prestazione e fastidi; se 2 sedute di fila hanno ciascuna almeno 2 segnali di affaticamento propone di anticipare lo scarico. Registra anche la pancia all'arrivo (gonfiore), solo come dato da incrociare. Fase alimentare attuale: " + phaseLabel() + ".";
 }
 function buildSessionAnalysisText(){
   var list = sortedWorkoutsAsc();
@@ -892,7 +971,7 @@ function buildSessionAnalysisText(){
   lines.push("Per ogni esercizio sotto c'è, se esiste, la seduta precedente dello stesso esercizio per il confronto.");
   lines.push("");
   w.exercises.forEach(function(e){
-    lines.push("- " + exerciseLine(e.id, e.sets, e.cycleWeek));
+    lines.push("- " + exerciseLine(e.id, e.sets, e.cycleWeek, e.rir));
     var prev = lastPerformance(e.id, w.id);
     lines.push("  precedente" + (prev ? (" (" + fmtDateIt(prev.workout.date) + "): " + setsText(prev.ex.sets)) : ": nessuno storico"));
   });
@@ -921,7 +1000,7 @@ function buildWeekAnalysisText(days){
       lines.push(fmtDateIt(w.date) + " — Scheda " + w.scheda + " (" + scheda.name + ")" + (w.variant ? " [variante]" : ""));
       var fbW = feedbackParts(w.feedback);
       if(fbW.length) lines.push("  Feedback: " + fbW.join("; ") + (w.feedback.nota ? '; nota: "' + w.feedback.nota + '"' : ""));
-      w.exercises.forEach(function(e){ lines.push("  - " + exerciseLine(e.id, e.sets, e.cycleWeek)); });
+      w.exercises.forEach(function(e){ lines.push("  - " + exerciseLine(e.id, e.sets, e.cycleWeek, e.rir)); });
       lines.push("");
     });
   }
@@ -1089,7 +1168,7 @@ function suggestFor(exId, setsCount, excludeId, deload){
     if(isBallast(cfg) && maxInfo && maxInfo.value && maxInfo.totale && bwNow){
       var totW = maxInfo.value * scheme.pct;
       newWeight = Math.max(0, Math.round((totW - bwNow) / cfg.inc) * cfg.inc);
-      note = "Settimana " + week + "/5" + (scheme.deload ? " (scarico)" : "") + " — " +
+      note = "Settimana " + week + "/5" + (scheme.deload ? " (scarico)" : "") + (ripresaLeft(exId) > 0 ? " (ripresa)" : "") + " — " +
              scheme.sets + "x" + scheme.reps + " @" + Math.round(scheme.pct*100) + "% ≈ " +
              (newWeight > 0 ? fmtNum(newWeight) + " kg di zavorra" : "a corpo libero") +
              " (" + fmtNum(Math.round(totW)) + " kg totali con il tuo peso di " + fmtNum(bwNow) + " kg) · RPE " + scheme.rpe;
@@ -1104,7 +1183,7 @@ function suggestFor(exId, setsCount, excludeId, deload){
       var rawW = maxInfo.value * scheme.pct;
       newWeight = Math.round(rawW / cfg.inc) * cfg.inc;
       if(newWeight < 0) newWeight = 0;
-      note = "Settimana " + week + "/5" + (scheme.deload ? " (scarico)" : "") + " — " +
+      note = "Settimana " + week + "/5" + (scheme.deload ? " (scarico)" : "") + (ripresaLeft(exId) > 0 ? " (ripresa)" : "") + " — " +
              scheme.sets + "x" + scheme.reps + " @" + Math.round(scheme.pct*100) + "% ≈ " +
              fmtNum(newWeight) + " kg · RPE " + scheme.rpe;
       noteType = scheme.deload ? "hold" : "up";
@@ -1196,7 +1275,7 @@ function startLog(schedaId){
     }
     sets[exId] = arr;
   });
-  logSession = {schedaId: schedaId, programma: PROGRAMMA_ATTUALE, variant: false, date: todayISO(), editId: null, exIds: exIds, sets: sets, closing: false, exNotes: {}, feedback: {}, deload: deload};
+  logSession = {schedaId: schedaId, programma: PROGRAMMA_ATTUALE, variant: false, date: todayISO(), editId: null, exIds: exIds, sets: sets, closing: false, exNotes: {}, rir: {}, feedback: {}, deload: deload};
   persistLogDraft();
   showTab("oggi");
 }
@@ -1208,11 +1287,13 @@ function editSession(id){
   var exIds = w.exercises.map(function(e){ return e.id; });
   var sets = {};
   var exNotes = {};
+  var rirMap = {};
   w.exercises.forEach(function(e){
     sets[e.id] = e.sets.map(function(s){ return {peso:s.peso, reps:s.reps, stato: s.stato || null}; });
     if(e.nota) exNotes[e.id] = e.nota;
+    if(e.rir != null) rirMap[e.id] = e.rir;
   });
-  logSession = {schedaId: w.scheda, programma: w.programma, variant: !!w.variant, date: w.date, editId: w.id, exIds: exIds, sets: sets, closing: false, exNotes: exNotes, feedback: w.feedback ? Object.assign({}, w.feedback) : {}};
+  logSession = {schedaId: w.scheda, programma: w.programma, variant: !!w.variant, date: w.date, editId: w.id, exIds: exIds, sets: sets, closing: false, exNotes: exNotes, rir: rirMap, feedback: w.feedback ? Object.assign({}, w.feedback) : {}};
   persistLogDraft();
   showTab("oggi");
 }
@@ -1330,6 +1411,9 @@ function saveLog(){
       exercisesOut.forEach(function(exo){
         var oe = (orig.exercises || []).find(function(x){ return x.id === exo.id; });
         if(oe && oe.cycleWeek) exo.cycleWeek = oe.cycleWeek;
+        if(oe && oe.ripresa) exo.ripresa = true;
+        if(logSession.rir && logSession.rir[exo.id] != null) exo.rir = logSession.rir[exo.id];
+        else if(oe && oe.rir != null) exo.rir = oe.rir;
       });
       var updated = {
         id: logSession.editId,
@@ -1366,7 +1450,18 @@ function saveLog(){
     if(cfgEx && cfgEx.kind === "principal"){
       var w = currentCycleWeek(exo.id);
       exo.cycleWeek = w; // settimana in cui è stata fatta questa seduta (campo facoltativo, additivo)
-      state.cycleWeek[exo.id] = (w >= 5) ? 1 : (w + 1);
+      if(ripresaLeft(exo.id) > 0){
+        state.programma.ripresa[exo.id]--;   // ripresa: la settimana si ripete, il contatore non avanza
+        exo.ripresa = true;
+      } else {
+        state.cycleWeek[exo.id] = (w >= 5) ? 1 : (w + 1);
+      }
+      var rir = logSession.rir && logSession.rir[exo.id];
+      if(rir != null && w <= 4){
+        var first = exo.sets.filter(function(x){ return x.reps > 0 && x.stato !== "SALTATO"; })[0];
+        var nm = maxFromRir(exo.id, first, rir, workout.date);
+        if(nm){ state.maxes[exo.id] = nm; exo.rir = rir; }
+      }
     }
   });
   persistAll();
@@ -1464,7 +1559,7 @@ function renderOggi(){
       html += '<div class="exname">'+cfg.name+'</div>';
       var restSec = restFor(scheda, exId);
       if(cfg.kind === "principal"){
-        html += '<div class="exmeta">Esercizio principale · settimana '+currentCycleWeek(exId)+'/5 del ciclo · '+logSession.sets[exId].length+' serie · recupero '+restText(restSec)+'</div>';
+        html += '<div class="exmeta">Esercizio principale · settimana '+currentCycleWeek(exId)+'/5 del ciclo'+(ripresaLeft(exId) > 0 && !logSession.editId ? ' (ripresa: si ripete la prossima volta)' : '')+' · '+logSession.sets[exId].length+' serie · recupero '+restText(restSec)+'</div>';
       } else {
         html += '<div class="exmeta">'+cfg.lo+(cfg.lo!==cfg.hi?("-"+cfg.hi):"")+" rip · "+logSession.sets[exId].length+" serie · recupero "+restText(restSec)+'</div>';
       }
@@ -1501,6 +1596,14 @@ function renderOggi(){
         html += '<button class="done-btn'+(statoCls?' '+statoCls:'')+'" data-act="cycle-stato" data-ex="'+exId+'" data-idx="'+idx+'" title="Tocca per: completato / parziale / saltato">'+statoLabel+'</button>';
         html += '</div>';
       });
+      if(cfg.kind === "principal" && !weekSchemeFor(exId).deload){
+        var curRir = logSession.rir ? logSession.rir[exId] : null;
+        html += '<div class="small" style="margin-top:10px;">Ripetizioni in canna nella <strong>1ª serie</strong> (corregge il massimale da solo)</div><div class="btn-row" style="flex-wrap:wrap;gap:6px;margin-top:6px;">';
+        RIR_OPTIONS.forEach(function(r){
+          html += '<button class="btn small'+(curRir === r ? ' primary' : '')+'" style="width:auto;min-height:40px;padding:6px 12px;" data-act="set-rir" data-ex="'+exId+'" data-rir="'+r+'">'+(r === 4 ? '4+' : r)+'</button>';
+        });
+        html += '</div>';
+      }
       html += '<div class="field" style="margin-top:6px;margin-bottom:0;"><input type="text" placeholder="Nota facoltativa su questo esercizio" value="'+(((logSession.exNotes && logSession.exNotes[exId]) || "").replace(/"/g,"&quot;"))+'" data-act="ex-nota" data-ex="'+exId+'"></div>';
       html += '</div>';
     });
@@ -2582,7 +2685,7 @@ function renderImpostazioni(){
   html += '</div>';
 
   html += '<div class="card"><h2>Massimali stimati</h2>';
-  html += '<p class="small muted">Stima del massimale (1RM) con la formula di Epley, dalla serie più pesante mai registrata per ciascun principale — valida perché finora ti alleni a cedimento vero su ogni serie. Usata per calcolare i carichi suggeriti (vedi Progressione Lineare di Carico in Consulta). Per le dips il massimale è sul carico totale (peso corporeo + zavorra): la zavorra suggerita è il carico della settimana meno il tuo peso attuale. Puoi correggerla a mano o ricalcolarla dallo storico.</p>';
+  html += '<p class="small muted">Stima del massimale (1RM) con la formula di Epley, dalla serie più pesante mai registrata per ciascun principale — valida perché finora ti alleni a cedimento vero su ogni serie. Usata per calcolare i carichi suggeriti (vedi Progressione Lineare di Carico in Consulta). Per le dips il massimale è sul carico totale (peso corporeo + zavorra): la zavorra suggerita è il carico della settimana meno il tuo peso attuale. A fine seduta, il tocco "ripetizioni in canna nella 1ª serie" lo aggiorna da solo con i carichi reali. Puoi correggerlo a mano; "Ricalcola dallo storico" usa la serie migliore di sempre e può riportarlo troppo in alto.</p>';
   Object.keys(state.exercises).forEach(function(exId){
     var cfg = state.exercises[exId];
     if(cfg.kind !== "principal") return;
@@ -2594,7 +2697,8 @@ function renderImpostazioni(){
     html += '<div><span class="small muted">Settimana ciclo (1-5)</span><input type="number" step="1" min="1" max="5" value="'+currentCycleWeek(exId)+'" data-act="set-cycle-week" data-ex="'+exId+'"></div>';
     html += '</div>';
     if(m){
-      var origine = m.source === "manuale" ? (m.convertito ? "Impostato a mano (sulla zavorra) e convertito sul totale con il peso attuale" : "Impostato a mano")
+      var origine = m.source === "rir" ? ("Dalla 1ª serie con " + m.rir + (m.rir === 4 ? "+" : "") + " rip in canna: " + (m.totale ? ("zavorra " + fmtNum(m.fromWeight) + " kg + peso " + fmtNum(m.fromBw) + " kg") : fmtNum(m.fromWeight) + " kg") + "×" + m.fromReps)
+        : m.source === "manuale" ? (m.convertito ? "Impostato a mano (sulla zavorra) e convertito sul totale con il peso attuale" : (m.nota ? "Impostato a mano (" + m.nota + ")" : "Impostato a mano"))
         : ("Da storico: " + (m.totale ? ("zavorra " + fmtNum(m.fromWeight) + " kg + peso " + fmtNum(m.fromBw) + " kg") : fmtNum(m.fromWeight)) + "×" + m.fromReps);
       html += '<div class="small muted" style="margin-top:4px;">'+origine+' · '+fmtDateIt(m.date)+'</div>';
     } else {
@@ -2688,6 +2792,14 @@ document.addEventListener("click", function(e){
       Object.keys(state.exercises).forEach(function(id){ if(state.exercises[id].kind === "principal") state.cycleWeek[id] = 5; });
       persistAll();
       toast("Scarico impostato");
+      render();
+    }
+  } else if(act === "set-rir"){
+    if(logSession){
+      if(!logSession.rir) logSession.rir = {};
+      var rx = t.getAttribute("data-ex"), rv = parseInt(t.getAttribute("data-rir"), 10);
+      if(logSession.rir[rx] === rv) delete logSession.rir[rx]; else logSession.rir[rx] = rv;
+      persistLogDraft();
       render();
     }
   } else if(act === "swap-ex"){
@@ -2872,7 +2984,8 @@ document.addEventListener("click", function(e){
       state.mesociclo = {obiettivo: "dimagrimento", dataInizio: todayISO(), durataSettimane: MESOCICLO_DURATA_DEFAULT.dimagrimento, pianoPdfMigrato: true, targets: JSON.parse(JSON.stringify(DIMAGRIMENTO_TARGETS)), piano: "base", versione: 1, storico: []};
       LEGACY_KEYS.forEach(function(k){ state[k] = null; });
       state.pasti = [];
-      state.programma = {versione: PROGRAMMA_ATTUALE, dal: todayISO()};
+      state.programma = {versione: PROGRAMMA_ATTUALE, dal: todayISO(), v36: todayISO()};
+      saveJSON(LS.programma, state.programma);
       wiz = null;
       logSession = null;
       toast("Dati cancellati");
